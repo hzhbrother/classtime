@@ -477,14 +477,21 @@ let readyPromise = null
 export function initDb() {
   if (!readyPromise) {
     readyPromise = (async () => {
-      // 多实例冷启动时用 advisory lock 串行化建表与种子写入
+      // Transaction pooler 不保证会话级锁的释放；事务锁会在提交、回滚或断连时自动释放
       const client = await getPool().connect()
+      let inTransaction = false
       try {
-        await client.query('SELECT pg_advisory_lock(728191)')
+        await client.query('BEGIN')
+        inTransaction = true
+        await client.query('SELECT pg_advisory_xact_lock(728191)')
         await createSchema()
         await seedIfEmpty()
+        await client.query('COMMIT')
+        inTransaction = false
+      } catch (err) {
+        if (inTransaction) await client.query('ROLLBACK').catch(() => {})
+        throw err
       } finally {
-        await client.query('SELECT pg_advisory_unlock(728191)').catch(() => {})
         client.release()
       }
     })().catch((err) => {
