@@ -36,6 +36,12 @@ npm run dev
 | 学生 | student | student123 |
 | 班级大屏 | display | display123 |
 
+## 管理后台入口
+
+- 电脑 / 手机：访问 `/login?admin=1`，或在登录页底部点击「管理员入口」。
+- 班级大屏：右上角盾牌图标可直接进入管理员登录页。
+- 仅 `super_admin` 账号可进入 `/admin`；其他账号会被拒绝并提示无管理权限。
+
 ## 部署到 Vercel + Neon
 
 1. 在 [Neon](https://neon.tech) 创建项目，复制 **Pooled connection** 连接串（主机名含 `-pooler`）。

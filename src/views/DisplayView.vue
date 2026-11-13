@@ -138,6 +138,9 @@ onBeforeUnmount(() => {
         <button class="d-icon-btn" title="全屏" @click="toggleFullscreen">
           <Icon name="fullscreen" :size="18" />
         </button>
+        <a class="d-icon-btn" href="/login?admin=1" title="管理员入口">
+          <Icon name="shield" :size="18" />
+        </a>
         <a class="d-icon-btn" href="/" title="返回个人端">
           <Icon name="user" :size="18" />
         </a>

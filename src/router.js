@@ -42,7 +42,7 @@ const routes = [
     path: '/admin',
     name: 'admin',
     component: () => import('./views/AdminView.vue'),
-    meta: { requiresAuth: true, admin: true, title: '管理后台' }
+    meta: { requiresAuth: true, admin: true, layout: false, title: '管理后台' }
   },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
@@ -62,6 +62,9 @@ router.beforeEach(async (to) => {
     return { name: 'board' }
   }
   if ((to.name === 'login' || to.name === 'register') && state.user) {
+    if (to.name === 'login' && to.query.admin === '1' && state.user.role === 'super_admin') {
+      return { name: 'admin' }
+    }
     return state.user.role === 'display' ? { name: 'display' } : { name: 'board' }
   }
   return true
