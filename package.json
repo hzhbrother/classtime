@@ -1,0 +1,23 @@
+{
+  "name": "classwork-cloud",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "班级作业云 · 多端班级作业板与超级管理员后台",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node --no-warnings server/index.js",
+    "build": "vite build",
+    "start": "node --no-warnings server/index.js",
+    "serve": "npm run build && npm run start"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.7"
+  }
+}
