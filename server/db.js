@@ -431,7 +431,8 @@ export async function getBoardPayload(date, userId = null, role = 'student') {
         id,
         subject: item.subject,
         content: item.content,
-        deadline: item.deadline,
+        // 旧版具体时刻没有对应课时，按新建作业的默认第一节课展示
+        deadline: /^第(?:[1-9]|1[0-2])节课$/.test(item.deadline || '') ? item.deadline : item.deadline ? '第1节课' : '',
         priority: item.priority,
         note: item.note,
         sort: Number(item.sort),
