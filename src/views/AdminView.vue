@@ -20,6 +20,10 @@ async function signOut() {
   router.replace({ path: '/login', query: { admin: '1' } })
 }
 
+function goBoard() {
+  router.push('/')
+}
+
 const tabs = [
   { key: 'overview', label: '概览', icon: 'grid', desc: '今日作业、账号与设备的整体运行情况', component: AdminOverview },
   { key: 'users', label: '用户管理', icon: 'users', desc: '创建账号、调整角色与停用权限', component: AdminUsers },
@@ -70,9 +74,9 @@ const current = computed(() => tabs.find((t) => t.key === section.value) || tabs
       </nav>
 
       <div class="admin-rail-foot">
-        <router-link to="/" class="admin-rail-util">
+        <button type="button" class="admin-rail-util" @click="goBoard">
           <Icon name="arrowLeft" :size="15" />返回作业板
-        </router-link>
+        </button>
         <div class="admin-rail-user">
           <Avatar :name="state.user?.name" :color="state.user?.color" :size="32" />
           <div class="admin-rail-user-info">
