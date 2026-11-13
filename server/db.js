@@ -12,10 +12,14 @@ function createPool() {
   if (!url) {
     throw new Error('缺少 DATABASE_URL（或 POSTGRES_URL）环境变量，请配置 Neon / Supabase 的 PostgreSQL 连接串')
   }
-  const isLocal = /localhost|127\.0\.0\.1/.test(url)
+  const parsed = new URL(url)
+  const sslmode = parsed.searchParams.get('sslmode')
+  parsed.searchParams.delete('sslmode')
+  const isLocal = /localhost|127\.0\.0\.1/.test(parsed.hostname)
+  const ssl = sslmode === 'disable' || (isLocal && !sslmode) ? false : { rejectUnauthorized: false }
   return new Pool({
-    connectionString: url,
-    ssl: isLocal ? false : { rejectUnauthorized: false },
+    connectionString: parsed.toString(),
+    ssl,
     max: 5,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 10000
