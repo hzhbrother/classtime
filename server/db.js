@@ -8,9 +8,9 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 let pool = null
 
 function createPool() {
-  const url = process.env.DATABASE_URL
+  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL
   if (!url) {
-    throw new Error('缺少 DATABASE_URL 环境变量，请配置 Neon 的 PostgreSQL 连接串')
+    throw new Error('缺少 DATABASE_URL（或 POSTGRES_URL）环境变量，请配置 Neon / Supabase 的 PostgreSQL 连接串')
   }
   const isLocal = /localhost|127\.0\.0\.1/.test(url)
   return new Pool({
