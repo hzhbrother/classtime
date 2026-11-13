@@ -1371,6 +1371,166 @@ table.data tbody tr:hover {
   white-space: pre-wrap;
 }
 
+.hw-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.hw-attachment {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 6px 5px 10px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+}
+
+.attachment-name {
+  min-width: 0;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.attachment-name:hover { color: var(--primary); }
+
+.import-dropzone {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 18px;
+  border: 1px dashed #c7d2fe;
+  border-radius: 14px;
+  background: #f8faff;
+  color: var(--text);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.import-dropzone:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.import-dropzone:disabled { opacity: 0.65; cursor: wait; }
+.import-file-title { font-size: 14px; font-weight: 700; }
+.import-file-desc { color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+.import-preview {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface-2);
+}
+
+.import-name-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.submission-summary {
+  display: grid;
+  grid-template-columns: 100px 100px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 14px;
+  border-radius: 13px;
+  background: var(--surface-3);
+}
+
+.submission-summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.submission-summary b { font-size: 25px; color: var(--text); }
+.submission-summary p { margin: 0; color: var(--faint); font-size: 12px; line-height: 1.6; }
+
+.submission-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  max-height: 48vh;
+  overflow-y: auto;
+}
+
+.submission-student {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.submission-student:hover { border-color: #a5b4fc; }
+.submission-student.submitted { border-color: #a7f3d0; background: #f0fdf9; }
+.submission-student:disabled { opacity: 0.65; }
+
+.submission-avatar {
+  width: 29px;
+  height: 29px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.submitted .submission-avatar { background: #d1fae5; color: #059669; }
+.submission-name { min-width: 0; flex: 1; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.submission-status { display: inline-flex; align-items: center; gap: 3px; color: var(--faint); font-size: 11px; }
+.submitted .submission-status { color: #059669; }
+
 .hw-footer {
   display: flex;
   align-items: center;
@@ -1746,6 +1906,26 @@ table.data tbody tr:hover {
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
+}
+
+.admin-stat.tone-violet {
+  background: linear-gradient(145deg, #f5f3ff 0%, #eef2ff 100%);
+  border-color: #ddd6fe;
+}
+
+.admin-stat.tone-blue {
+  background: linear-gradient(145deg, #eff6ff 0%, #ecfeff 100%);
+  border-color: #bae6fd;
+}
+
+.admin-stat.tone-amber {
+  background: linear-gradient(145deg, #fffbeb 0%, #fff7ed 100%);
+  border-color: #fde68a;
+}
+
+.admin-stat.tone-green {
+  background: linear-gradient(145deg, #ecfdf5 0%, #f0fdfa 100%);
+  border-color: #a7f3d0;
 }
 
 .admin-stat .stat-top {

@@ -14,28 +14,79 @@ const props = defineProps({
 const emit = defineEmits(['close', 'saved'])
 
 const subjects = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
-const form = reactive({ subject: '语文', content: '', deadline: '21:00', priority: 'normal', note: '' })
+const lessons = Array.from({ length: 12 }, (_, index) => `第${index + 1}节课`)
+const accept = '.pdf,.doc,.docx,.dot,.dotx,.xls,.xlsx,.xlt,.xltx,.csv,.ppt,.pptx,.pot,.potx,.wps,.wpt,.et,.ett,.dps,.dpt,.txt,.zip,.rar,.7z'
+const form = reactive({ subject: '语文', content: '', deadline: '第1节课', priority: 'normal', note: '' })
 const loading = ref(false)
 const error = ref('')
+const fileInput = ref(null)
+const existingAttachments = ref([])
+const newAttachments = ref([])
+const removeAttachmentIds = ref([])
 
 watch(
   () => props.open,
   (open) => {
     if (!open) return
     error.value = ''
+    existingAttachments.value = [...(props.item?.attachments || [])]
+    newAttachments.value = []
+    removeAttachmentIds.value = []
     if (props.item) {
       Object.assign(form, {
         subject: props.item.subject,
         content: props.item.content,
-        deadline: props.item.deadline || '',
+        deadline: lessons.includes(props.item.deadline) ? props.item.deadline : '第1节课',
         priority: props.item.priority || 'normal',
         note: props.item.note || ''
       })
     } else {
-      Object.assign(form, { subject: '语文', content: '', deadline: '21:00', priority: 'normal', note: '' })
+      Object.assign(form, { subject: '语文', content: '', deadline: '第1节课', priority: 'normal', note: '' })
     }
   }
 )
+
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).split(',')[1])
+    reader.onerror = () => reject(new Error(`无法读取文件：${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function onFiles(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!files.length) return
+  error.value = ''
+  const currentBytes = newAttachments.value.reduce((sum, file) => sum + file.size, 0)
+  if (currentBytes + files.reduce((sum, file) => sum + file.size, 0) > 3 * 1024 * 1024) {
+    error.value = '单次上传的附件合计不能超过 3 MB'
+    return
+  }
+  try {
+    for (const file of files) {
+      newAttachments.value.push({
+        filename: file.name,
+        mime: file.type || 'application/octet-stream',
+        size: file.size,
+        data: await readFile(file)
+      })
+    }
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
+function removeExisting(file) {
+  removeAttachmentIds.value.push(file.id)
+  existingAttachments.value = existingAttachments.value.filter((item) => item.id !== file.id)
+}
+
+function formatFileSize(bytes) {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
 
 async function save() {
   if (!form.content.trim()) {
@@ -50,7 +101,9 @@ async function save() {
       content: form.content.trim(),
       deadline: form.deadline,
       priority: form.priority,
-      note: form.note.trim()
+      note: form.note.trim(),
+      attachments: newAttachments.value.map(({ filename, mime, data }) => ({ filename, mime, data })),
+      removeAttachmentIds: removeAttachmentIds.value
     }
     const board = props.item
       ? await api.patch(`/items/${props.item.id}`, payload)
@@ -66,7 +119,7 @@ async function save() {
 }
 
 async function remove() {
-  const ok = await confirmDialog('删除后该科目作业将从当日作业板移除，且学生打卡记录一并清除。', {
+  const ok = await confirmDialog('删除后该科目作业、提交登记与附件将一并移除。', {
     title: '删除这条作业？',
     danger: true
   })
@@ -122,8 +175,10 @@ async function remove() {
 
       <div class="form-grid">
         <div class="field">
-          <label class="label">截止时间</label>
-          <input v-model="form.deadline" type="time" class="input" />
+          <label class="label">完成时间</label>
+          <select v-model="form.deadline" class="select">
+            <option v-for="lesson in lessons" :key="lesson" :value="lesson">{{ lesson }}前完成</option>
+          </select>
         </div>
         <div class="field">
           <label class="label">优先级</label>
@@ -148,9 +203,36 @@ async function remove() {
         </div>
       </div>
 
-      <div class="field" style="margin-bottom: 0">
+      <div class="field">
         <label class="label">老师备注 <span class="faint" style="font-weight: 400">（可选）</span></label>
         <input v-model="form.note" class="input" placeholder="例如：明早课前抽查背诵" maxlength="300" />
+      </div>
+
+      <div class="field" style="margin-bottom: 0">
+        <label class="label">作业附件 <span class="faint" style="font-weight: 400">（可选）</span></label>
+        <input ref="fileInput" type="file" multiple :accept="accept" style="display: none" @change="onFiles" />
+        <button type="button" class="btn btn-outline btn-sm" :disabled="loading" @click="fileInput.click()">
+          <Icon name="plus" :size="14" />选择文件
+        </button>
+        <div class="hint">支持 PDF、Word、Excel、PPT、WPS 等格式，单次上传合计不超过 3 MB。</div>
+        <div v-if="existingAttachments.length || newAttachments.length" class="attachment-list">
+          <div v-for="file in existingAttachments" :key="file.id" class="attachment-chip">
+            <a :href="`/api/attachments/${file.id}/download`" class="attachment-name" :title="file.filename">
+              <Icon name="link" :size="13" />{{ file.filename }}
+            </a>
+            <span class="text-xs faint">{{ formatFileSize(file.size) }}</span>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" title="保存后移除此附件" @click="removeExisting(file)">
+              <Icon name="x" :size="13" />
+            </button>
+          </div>
+          <div v-for="(file, index) in newAttachments" :key="`${file.filename}-${index}`" class="attachment-chip">
+            <span class="attachment-name" :title="file.filename"><Icon name="link" :size="13" />{{ file.filename }}</span>
+            <span class="text-xs faint">{{ formatFileSize(file.size) }}</span>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" title="移除" @click="newAttachments.splice(index, 1)">
+              <Icon name="x" :size="13" />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div v-if="form.subject" class="row gap-8" style="margin-top: 14px">

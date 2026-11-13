@@ -60,14 +60,14 @@ async function submit() {
           <em>一起把作业安排好。</em>
         </h1>
         <p class="auth-lead">
-          注册后即可查看每日作业、同步打卡记录。教师账号可发布与修改作业，
+          注册后即可查看每日作业与提交情况。教师账号可发布、修改作业并登记提交，
           设备绑定后由管理员分配对应身份。
         </p>
 
         <div class="auth-features">
           <div class="auth-feature">
             <span class="auth-feature-icon"><Icon name="check" :size="15" /></span>
-            <span>学生端：查看作业、逐项打卡</span>
+            <span>学生端：查看作业与提交情况</span>
           </div>
           <div class="auth-feature">
             <span class="auth-feature-icon"><Icon name="edit" :size="15" /></span>
@@ -135,7 +135,7 @@ async function submit() {
                 <Icon name="user" :size="18" style="color: var(--primary); margin-top: 2px" />
                 <span>
                   <span class="role-option-title">学生</span>
-                  <span class="role-option-desc">查看作业、完成打卡</span>
+                  <span class="role-option-desc">查看作业与提交情况</span>
                 </span>
               </button>
               <button

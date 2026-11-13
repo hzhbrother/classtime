@@ -73,9 +73,6 @@ const current = computed(() => tabs.find((t) => t.key === section.value) || tabs
         <router-link to="/" class="admin-rail-util">
           <Icon name="arrowLeft" :size="15" />返回作业板
         </router-link>
-        <a href="/display" target="_blank" rel="noopener" class="admin-rail-util">
-          <Icon name="tv" :size="15" />班级大屏
-        </a>
         <div class="admin-rail-user">
           <Avatar :name="state.user?.name" :color="state.user?.color" :size="32" />
           <div class="admin-rail-user-info">
@@ -98,9 +95,6 @@ const current = computed(() => tabs.find((t) => t.key === section.value) || tabs
         </div>
         <div class="admin-head-actions">
           <span class="badge badge-primary admin-role-badge"><Icon name="shield" :size="12" />超级管理员</span>
-          <router-link to="/" class="btn btn-outline btn-sm admin-back">
-            <Icon name="arrowLeft" :size="14" />返回作业板
-          </router-link>
           <button class="btn btn-ghost btn-icon btn-sm admin-logout" type="button" title="退出登录" @click="signOut">
             <Icon name="logout" :size="16" />
           </button>

@@ -180,6 +180,16 @@ export async function createSchema() {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS attachments (
+      id SERIAL PRIMARY KEY,
+      item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      mime TEXT,
+      size INTEGER NOT NULL DEFAULT 0,
+      data BYTEA NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS completions (
       item_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
@@ -213,6 +223,7 @@ export async function createSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_items_board ON items (board_id);
+    CREATE INDEX IF NOT EXISTS idx_attachments_item ON attachments (item_id);
     CREATE INDEX IF NOT EXISTS idx_completions_user ON completions (user_id);
     CREATE INDEX IF NOT EXISTS idx_devices_user ON devices (user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
@@ -342,22 +353,53 @@ export async function copyItems(fromDate, toDate) {
 
 export async function getBoardPayload(date, userId = null, role = 'student') {
   const board = await ensureBoard(date)
-  const items = await db
-    .prepare(
-      `SELECT i.*, 
-        (SELECT COUNT(*) FROM completions c WHERE c.item_id = i.id) AS done_count
-       FROM items i WHERE i.board_id = ? ORDER BY i.sort, i.id`
-    )
-    .all(board.id)
-  const doneRows = userId
-    ? await db.prepare('SELECT item_id FROM completions WHERE user_id = ?').all(userId)
+  const [items, students, completionRows, attachmentRows] = await Promise.all([
+    db.prepare('SELECT * FROM items WHERE board_id = ? ORDER BY sort, id').all(board.id),
+    db.prepare("SELECT id, name, class_name FROM users WHERE role = 'student' AND disabled = 0 ORDER BY id").all(),
+    db.prepare(
+      `SELECT c.item_id, c.user_id FROM completions c
+       JOIN items i ON i.id = c.item_id
+       JOIN users u ON u.id = c.user_id AND u.role = 'student' AND u.disabled = 0
+       WHERE i.board_id = ?`
+    ).all(board.id),
+    db.prepare(
+      `SELECT a.id, a.item_id, a.filename, a.mime, a.size FROM attachments a
+       JOIN items i ON i.id = a.item_id WHERE i.board_id = ? ORDER BY a.id`
+    ).all(board.id)
+  ])
+
+  const submittedByItem = new Map()
+  for (const row of completionRows) {
+    const itemId = Number(row.item_id)
+    if (!submittedByItem.has(itemId)) submittedByItem.set(itemId, new Set())
+    submittedByItem.get(itemId).add(Number(row.user_id))
+  }
+  const attachmentsByItem = new Map()
+  for (const row of attachmentRows) {
+    const itemId = Number(row.item_id)
+    if (!attachmentsByItem.has(itemId)) attachmentsByItem.set(itemId, [])
+    attachmentsByItem.get(itemId).push({
+      id: Number(row.id),
+      filename: row.filename,
+      mime: row.mime,
+      size: Number(row.size)
+    })
+  }
+
+  const studentCount = students.length
+  const totalDone = items.reduce((acc, item) => acc + (submittedByItem.get(Number(item.id))?.size || 0), 0)
+  const capacity = items.length * studentCount
+  const previousDate = addDays(date, -1)
+  const previousBoard = await getBoardRow(previousDate)
+  const previousItems = previousBoard
+    ? await db.prepare(
+        `SELECT i.id, i.subject,
+          (SELECT COUNT(*) FROM completions c JOIN users u ON u.id = c.user_id
+           WHERE c.item_id = i.id AND u.role = 'student' AND u.disabled = 0) AS done_count
+         FROM items i WHERE i.board_id = ? ORDER BY i.sort, i.id`
+      ).all(previousBoard.id)
     : []
-  const doneSet = new Set(doneRows.map((r) => Number(r.item_id)))
-  const studentCount = Number(
-    (await db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'student' AND disabled = 0").get()).n
-  )
-  const totalDone = items.reduce((acc, i) => acc + Number(i.done_count), 0)
-  const capacity = items.length * Math.max(studentCount, 1)
+
   return {
     date,
     title: board.title,
@@ -367,17 +409,39 @@ export async function getBoardPayload(date, userId = null, role = 'student') {
     studentCount,
     totalDone,
     progress: capacity === 0 ? 0 : Math.round((totalDone / capacity) * 100),
-    items: items.map((i) => ({
-      id: Number(i.id),
-      subject: i.subject,
-      content: i.content,
-      deadline: i.deadline,
-      priority: i.priority,
-      note: i.note,
-      sort: Number(i.sort),
-      doneCount: Number(i.done_count),
-      done: doneSet.has(Number(i.id))
-    }))
+    previousDay: {
+      date: previousDate,
+      items: previousItems.map((item) => ({
+        id: Number(item.id),
+        subject: item.subject,
+        doneCount: Number(item.done_count),
+        studentCount
+      }))
+    },
+    items: items.map((item) => {
+      const id = Number(item.id)
+      const submittedIds = submittedByItem.get(id) || new Set()
+      const submittedStudents = students
+        .filter((student) => submittedIds.has(Number(student.id)))
+        .map((student) => ({ id: Number(student.id), name: student.name, className: student.class_name }))
+      const pendingStudents = students
+        .filter((student) => !submittedIds.has(Number(student.id)))
+        .map((student) => ({ id: Number(student.id), name: student.name, className: student.class_name }))
+      return {
+        id,
+        subject: item.subject,
+        content: item.content,
+        deadline: item.deadline,
+        priority: item.priority,
+        note: item.note,
+        sort: Number(item.sort),
+        doneCount: submittedStudents.length,
+        done: userId ? submittedIds.has(Number(userId)) : false,
+        submittedStudents,
+        pendingStudents,
+        attachments: attachmentsByItem.get(id) || []
+      }
+    })
   }
 }
 

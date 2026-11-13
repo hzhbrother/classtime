@@ -77,9 +77,9 @@ onMounted(load)
           <input v-model="form.class_name" class="input" maxlength="30" />
         </div>
         <div class="field" style="margin-bottom: 0">
-          <label class="label">大屏标语</label>
+          <label class="label">大屏提示文字</label>
           <input v-model="form.display_motto" class="input" maxlength="60" />
-          <div class="hint">显示在班级大屏时钟下方。</div>
+          <div class="hint">显示在作业卡片底部；老师填写单科备注时，优先显示单科备注。</div>
         </div>
       </div>
 
@@ -114,7 +114,7 @@ onMounted(load)
           <button type="button" class="switch" :class="{ on: form.auto_carry === '1' }" @click="form.auto_carry = form.auto_carry === '1' ? '0' : '1'" />
         </div>
         <div class="hint" style="margin-top: 10px">
-          服务端每 30 秒检查一次日期，跨天后自动创建作业板，并向所有在线设备推送刷新事件。
+          常驻服务会检查日期变化；Vercel 部署由每日定时任务自动创建新作业板。
         </div>
       </div>
 

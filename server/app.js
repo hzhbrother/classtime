@@ -32,7 +32,7 @@ const REALTIME_ENABLED = !process.env.VERCEL
 
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '6mb' }))
 
 /* ------------------------------------------------------------------ */
 /* 工具函数                                                            */
@@ -397,6 +397,42 @@ function validDate(d) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(d))
 }
 
+function httpError(status, message) {
+  const err = new Error(message)
+  err.status = status
+  return err
+}
+
+const MAX_ATTACHMENT_BATCH_BYTES = 3 * 1024 * 1024
+
+function parseAttachments(input) {
+  if (input === undefined) return []
+  if (!Array.isArray(input) || input.length > 10) throw httpError(400, '每次最多上传 10 个附件')
+  let totalBytes = 0
+  return input.map((file) => {
+    const filename = String(file?.filename || file?.name || '').split(/[\\/]/).pop().replace(/[\x00-\x1f]/g, '').trim().slice(0, 120)
+    const mime = String(file?.mime || file?.type || 'application/octet-stream').slice(0, 120)
+    const base64 = String(file?.data || '').replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '')
+    if (!filename || !base64 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length % 4 !== 0) {
+      throw httpError(400, '附件内容不完整，请重新选择文件')
+    }
+    const data = Buffer.from(base64, 'base64')
+    totalBytes += data.length
+    if (!data.length || totalBytes > MAX_ATTACHMENT_BATCH_BYTES) {
+      throw httpError(400, '单次上传的附件合计不能超过 3 MB')
+    }
+    return { filename, mime, data }
+  })
+}
+
+async function insertAttachments(itemId, files) {
+  for (const file of files) {
+    await db.prepare(
+      'INSERT INTO attachments (item_id, filename, mime, size, data, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(itemId, file.filename, file.mime, file.data.length, file.data, nowIso())
+  }
+}
+
 app.get('/api/board', h(async (req, res) => {
   const settings = await getSettings()
   const date = validDate(req.query.date) ? req.query.date : dateStr()
@@ -442,13 +478,15 @@ app.post('/api/board/:date/items', canEditBoard, h(async (req, res) => {
   if (!String(subject).trim()) return res.status(400).json({ error: '请填写科目' })
   if (!String(content).trim()) return res.status(400).json({ error: '请填写作业内容' })
   if (!['normal', 'urgent'].includes(priority)) return res.status(400).json({ error: '优先级不合法' })
+  const files = parseAttachments(req.body?.attachments)
   const board = await ensureBoard(date)
   const maxSort = Number((await db.prepare('SELECT COALESCE(MAX(sort), -1) AS m FROM items WHERE board_id = ?').get(board.id)).m)
   const now = nowIso()
-  await db.prepare(
+  const info = await db.prepare(
     `INSERT INTO items (board_id, subject, content, deadline, priority, note, sort, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(board.id, String(subject).trim().slice(0, 20), String(content).trim().slice(0, 1000), String(deadline).slice(0, 10), priority, String(note).slice(0, 300), maxSort + 1, now, now)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+  ).run(board.id, String(subject).trim().slice(0, 20), String(content).trim().slice(0, 1000), String(deadline).trim().slice(0, 20), priority, String(note).slice(0, 300), maxSort + 1, now, now)
+  await insertAttachments(Number(info.lastInsertRowid), files)
   await db.prepare('UPDATE boards SET updated_at = ? WHERE id = ?').run(now, board.id)
   await addLog({ userId: req.user.id, username: req.user.username, action: 'item.create', detail: `为 ${date} 添加 ${subject} 作业`, ip: clientIp(req) })
   broadcast('board', { date })
@@ -457,23 +495,36 @@ app.post('/api/board/:date/items', canEditBoard, h(async (req, res) => {
 
 app.patch('/api/items/:id', canEditBoard, h(async (req, res) => {
   const id = Number(req.params.id)
-  const item = await db.prepare('SELECT i.*, b.date FROM items i JOIN boards b ON b.id = i.board_id WHERE i.id = ?').get(id)
+  const item = await db.prepare('SELECT i.*, b.date, b.id AS board_id FROM items i JOIN boards b ON b.id = i.board_id WHERE i.id = ?').get(id)
   if (!item) return res.status(404).json({ error: '作业不存在' })
   const { subject, content, deadline, priority, note } = req.body || {}
   if (priority !== undefined && !['normal', 'urgent'].includes(priority)) {
     return res.status(400).json({ error: '优先级不合法' })
   }
+  const files = parseAttachments(req.body?.attachments)
+  const removeIds = req.body?.removeAttachmentIds === undefined
+    ? []
+    : Array.isArray(req.body.removeAttachmentIds)
+      ? req.body.removeAttachmentIds.map(Number).filter(Number.isInteger)
+      : null
+  if (!removeIds) return res.status(400).json({ error: '附件删除列表不正确' })
+  const now = nowIso()
   await db.prepare(
     `UPDATE items SET subject = ?, content = ?, deadline = ?, priority = ?, note = ?, updated_at = ? WHERE id = ?`
   ).run(
     subject !== undefined ? String(subject).slice(0, 20) : item.subject,
     content !== undefined ? String(content).slice(0, 1000) : item.content,
-    deadline !== undefined ? String(deadline).slice(0, 10) : item.deadline,
+    deadline !== undefined ? String(deadline).trim().slice(0, 20) : item.deadline,
     priority !== undefined ? priority : item.priority,
     note !== undefined ? String(note).slice(0, 300) : item.note,
-    nowIso(),
+    now,
     id
   )
+  for (const attachmentId of removeIds) {
+    await db.prepare('DELETE FROM attachments WHERE id = ? AND item_id = ?').run(attachmentId, id)
+  }
+  await insertAttachments(id, files)
+  await db.prepare('UPDATE boards SET updated_at = ? WHERE id = ?').run(now, item.board_id)
   await addLog({ userId: req.user.id, username: req.user.username, action: 'item.update', detail: `修改 ${item.date} 的 ${item.subject} 作业`, ip: clientIp(req) })
   broadcast('board', { date: item.date })
   res.json(await getBoardPayload(item.date, req.user.id, req.user.role))
@@ -490,18 +541,33 @@ app.delete('/api/items/:id', canEditBoard, h(async (req, res) => {
   res.json(await getBoardPayload(item.date, req.user.id, req.user.role))
 }))
 
-app.post('/api/items/:id/toggle', requireAuth, h(async (req, res) => {
+app.get('/api/attachments/:id/download', h(async (req, res) => {
+  const settings = await getSettings()
+  if (!req.user && settings.allow_public_display !== '1') return res.status(401).json({ error: '请先登录' })
+  const row = await db.prepare('SELECT * FROM attachments WHERE id = ?').get(Number(req.params.id))
+  if (!row) return res.status(404).json({ error: '附件不存在或已删除' })
+  res.setHeader('Content-Type', row.mime || 'application/octet-stream')
+  res.setHeader('Content-Length', row.data.length)
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.filename)}`)
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.send(row.data)
+}))
+
+app.put('/api/items/:id/submissions/:studentId', canEditBoard, h(async (req, res) => {
   const id = Number(req.params.id)
-  const item = await db.prepare('SELECT i.*, b.date FROM items i JOIN boards b ON b.id = i.board_id WHERE i.id = ?').get(id)
+  const studentId = Number(req.params.studentId)
+  const item = await db.prepare('SELECT i.*, b.date, b.id AS board_id FROM items i JOIN boards b ON b.id = i.board_id WHERE i.id = ?').get(id)
   if (!item) return res.status(404).json({ error: '作业不存在' })
-  const exists = await db.prepare('SELECT 1 FROM completions WHERE item_id = ? AND user_id = ?').get(id, req.user.id)
-  if (exists) {
-    await db.prepare('DELETE FROM completions WHERE item_id = ? AND user_id = ?').run(id, req.user.id)
+  const student = await db.prepare("SELECT id, name FROM users WHERE id = ? AND role = 'student' AND disabled = 0").get(studentId)
+  if (!student) return res.status(404).json({ error: '学生不存在或已停用' })
+  const submitted = req.body?.submitted !== false
+  if (submitted) {
+    await db.prepare('INSERT INTO completions (item_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
+      .run(id, studentId, nowIso())
   } else {
-    await db
-      .prepare('INSERT INTO completions (item_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
-      .run(id, req.user.id, nowIso())
+    await db.prepare('DELETE FROM completions WHERE item_id = ? AND user_id = ?').run(id, studentId)
   }
+  await db.prepare('UPDATE boards SET updated_at = ? WHERE id = ?').run(nowIso(), item.board_id)
   broadcast('board', { date: item.date })
   res.json(await getBoardPayload(item.date, req.user.id, req.user.role))
 }))
@@ -668,6 +734,62 @@ app.post('/api/admin/users', isAdmin, h(async (req, res) => {
   broadcast('users', { reason: 'create' })
   const user = toUser(await db.prepare('SELECT * FROM users WHERE id = ?').get(Number(info.lastInsertRowid)))
   res.status(201).json(user)
+}))
+
+app.post('/api/admin/users/import', isAdmin, h(async (req, res) => {
+  const inputNames = req.body?.names
+  if (!Array.isArray(inputNames) || !inputNames.length) return res.status(400).json({ error: '表格中没有可导入的学生姓名' })
+  if (inputNames.length > 200) return res.status(400).json({ error: '单次最多导入 200 名学生' })
+  const password = String(req.body?.password || '123456')
+  const prefix = String(req.body?.prefix || 'stu').trim()
+  if (password.length < 6) return res.status(400).json({ error: '统一初始密码至少 6 位' })
+  if (!/^[a-zA-Z0-9_]{1,12}$/.test(prefix)) return res.status(400).json({ error: '账号前缀仅支持 1-12 位字母、数字或下划线' })
+  const names = [...new Set(inputNames.map((name) => String(name).trim()).filter(Boolean))]
+  if (names.some((name) => name.length > 20)) return res.status(400).json({ error: '学生姓名不能超过 20 个字符' })
+  if (!names.length) return res.status(400).json({ error: '表格中没有可导入的学生姓名' })
+
+  const settings = await getSettings()
+  const className = String(req.body?.className || settings.class_name).trim().slice(0, 30)
+  const existing = await db.prepare('SELECT username, name, role, class_name FROM users').all()
+  const usedUsernames = new Set(existing.map((row) => row.username))
+  const existingStudents = new Set(
+    existing.filter((row) => row.role === 'student').map((row) => `${row.name}\n${row.class_name || ''}`)
+  )
+  let sequence = 1
+  const numberPattern = new RegExp(`^${prefix}(\\d+)$`)
+  for (const row of existing) {
+    const match = row.username.match(numberPattern)
+    if (match) sequence = Math.max(sequence, Number(match[1]) + 1)
+  }
+
+  const colors = ['#4f46e5', '#0891b2', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6']
+  const accounts = []
+  let skipped = 0
+  for (const name of names) {
+    if (existingStudents.has(`${name}\n${className}`)) {
+      skipped++
+      continue
+    }
+    let username
+    do {
+      username = `${prefix}${String(sequence++).padStart(3, '0')}`
+    } while (usedUsernames.has(username))
+    await db.prepare(
+      'INSERT INTO users (username, password_hash, name, role, color, class_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(username, hashPassword(password), name, 'student', colors[accounts.length % colors.length], className, nowIso())
+    usedUsernames.add(username)
+    existingStudents.add(`${name}\n${className}`)
+    accounts.push({ username, name })
+  }
+  await addLog({
+    userId: req.user.id,
+    username: req.user.username,
+    action: 'admin.user_import',
+    detail: `从电子表格导入 ${accounts.length} 名学生，跳过 ${skipped} 名`,
+    ip: clientIp(req)
+  })
+  broadcast('users', { reason: 'import' })
+  res.status(201).json({ created: accounts.length, skipped, accounts })
 }))
 
 app.patch('/api/admin/users/:id', isAdmin, h(async (req, res) => {
@@ -898,7 +1020,9 @@ app.use('/api', (req, res) => res.status(404).json({ error: '接口不存在' })
 app.use((err, req, res, next) => {
   console.error('[server]', err)
   if (res.headersSent) return next(err)
-  res.status(500).json({ error: '服务器开小差了，请稍后再试' })
+  const status = Number(err.status) || 500
+  const message = status === 413 ? '上传内容过大，请将单次附件控制在 3 MB 以内' : status < 500 ? err.message : '服务器开小差了，请稍后再试'
+  res.status(status).json({ error: message })
 })
 
 export default app

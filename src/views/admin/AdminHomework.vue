@@ -10,8 +10,7 @@ import {
   weekdayCN,
   formatDateCN,
   subjectColor,
-  subjectInitial,
-  relativeTime
+  subjectInitial
 } from '../../lib/format'
 
 const date = ref(todayStr())
@@ -78,7 +77,7 @@ async function togglePublish() {
 }
 
 async function removeItem(item) {
-  const ok = await confirmDialog(`将删除「${item.subject}」作业及其打卡记录。`, {
+  const ok = await confirmDialog(`将删除「${item.subject}」作业、提交登记与附件。`, {
     title: '删除作业？',
     danger: true
   })
@@ -113,7 +112,7 @@ onMounted(load)
         <div class="card-title">作业管理</div>
         <div class="card-sub">
           {{ formatDateCN(date) }} {{ weekdayCN(date) }} · {{ board?.items.length || 0 }} 项作业 ·
-          {{ board?.progress || 0 }}% 全班完成
+          {{ board?.progress || 0 }}% 全班已交
         </div>
       </div>
       <div class="toolbar">
@@ -136,8 +135,7 @@ onMounted(load)
         <span class="dot" />{{ board?.published ? '已发布' : '草稿' }}
       </span>
       <span class="badge badge-gray">{{ board?.studentCount || 0 }} 名学生</span>
-      <span class="badge badge-gray">{{ board?.totalDone || 0 }} 人次打卡</span>
-      <span v-if="board?.updatedAt" class="text-xs faint">最后编辑 {{ relativeTime(board.updatedAt) }}</span>
+      <span class="badge badge-gray">{{ board?.totalDone || 0 }} 人次已交</span>
     </div>
 
     <div v-if="loading" class="skeleton" style="height: 280px" />
@@ -158,12 +156,23 @@ onMounted(load)
               <span class="dot" />加急
             </span>
             <span v-if="item.deadline" class="badge badge-gray" style="height: 20px; font-size: 10px">
-              <Icon name="clock" :size="11" />{{ item.deadline }} 截止
+              <Icon name="clock" :size="11" />{{ item.deadline }}前完成
             </span>
-            <span class="text-xs faint">{{ item.doneCount }} 人已打卡</span>
+            <span class="text-xs faint">{{ item.doneCount }} / {{ board.studentCount }} 人已交</span>
           </div>
           <div class="text-sm" style="margin-top: 4px; color: var(--text-2); line-height: 1.6; white-space: pre-wrap">{{ item.content }}</div>
           <div v-if="item.note" class="text-xs faint" style="margin-top: 4px">备注：{{ item.note }}</div>
+          <div v-if="item.attachments?.length" class="hw-attachments" style="margin: 8px 0 0">
+            <a
+              v-for="file in item.attachments"
+              :key="file.id"
+              :href="`/api/attachments/${file.id}/download`"
+              class="hw-attachment"
+              :download="file.filename"
+            >
+              <Icon name="link" :size="12" />{{ file.filename }}
+            </a>
+          </div>
         </div>
         <div class="row gap-4">
           <button class="btn btn-ghost btn-icon btn-sm" title="编辑" @click="openEdit(item)">

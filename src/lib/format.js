@@ -123,6 +123,7 @@ export const ACTION_LABELS = {
   'device.bind': '绑定设备',
   'device.unbind': '解绑设备',
   'admin.user_create': '创建账号',
+  'admin.user_import': '导入学生',
   'admin.user_update': '更新账号',
   'admin.user_delete': '删除账号',
   'admin.device_update': '调整设备',

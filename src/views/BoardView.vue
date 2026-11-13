@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '../components/Icon.vue'
+import Modal from '../components/Modal.vue'
 import HomeworkDialog from '../components/HomeworkDialog.vue'
 import { api } from '../lib/api'
 import { state, pushToast, confirmDialog } from '../lib/store'
@@ -11,9 +12,7 @@ import {
   todayStr,
   shiftDate,
   weekdayCN,
-  formatDateCN,
-  formatClockSec,
-  relativeTime
+  formatDateCN
 } from '../lib/format'
 
 const date = ref(todayStr())
@@ -21,42 +20,38 @@ const board = ref(null)
 const notices = ref([])
 const loading = ref(true)
 const error = ref('')
-const lastSync = ref(null)
 const dialogOpen = ref(false)
 const editingItem = ref(null)
-const busyItem = ref(null)
+const submissionItemId = ref(null)
+const busyStudent = ref(null)
 const publishing = ref(false)
-const now = ref(new Date())
 
 const isTeacher = computed(() => ['super_admin', 'teacher'].includes(state.user?.role))
-const isStudent = computed(() => state.user?.role === 'student')
 const isToday = computed(() => date.value === todayStr())
 const dateLabel = computed(() => `${formatDateCN(date.value)} ${weekdayCN(date.value)}`)
 
 const items = computed(() => board.value?.items || [])
 const urgentCount = computed(() => items.value.filter((i) => i.priority === 'urgent').length)
-const ownDone = computed(() => items.value.filter((i) => i.done).length)
-const progress = computed(() => {
-  if (!board.value) return 0
-  if (isStudent.value) {
-    return items.value.length ? Math.round((ownDone.value / items.value.length) * 100) : 0
-  }
-  return board.value.progress || 0
+const progress = computed(() => board.value?.progress || 0)
+const activeSubmissionItem = computed(() => items.value.find((item) => item.id === submissionItemId.value) || null)
+const submissionStudents = computed(() => {
+  if (!activeSubmissionItem.value) return []
+  const submittedIds = new Set(activeSubmissionItem.value.submittedStudents.map((student) => student.id))
+  return [...activeSubmissionItem.value.submittedStudents, ...activeSubmissionItem.value.pendingStudents]
+    .sort((a, b) => a.id - b.id)
+    .map((student) => ({ ...student, submitted: submittedIds.has(student.id) }))
 })
 const nearestDeadline = computed(() => {
-  const list = items.value.filter((i) => i.deadline).map((i) => i.deadline).sort()
+  const list = items.value.filter((i) => i.deadline).map((i) => i.deadline)
+  list.sort((a, b) => Number(a.match(/\d+/)?.[0] || 999) - Number(b.match(/\d+/)?.[0] || 999))
   return list[0] || '—'
 })
 const heroTitle = computed(() => (isToday.value ? '今天的作业' : `${formatDateCN(date.value)} 的作业`))
 const heroSub = computed(() => {
   if (board.value?.note) return board.value.note
   return isToday.value
-    ? '所有作业已同步到云端，手机、电脑与班级大屏实时一致。'
+    ? '作业由老师统一发布，提交情况由老师逐名登记。'
     : '历史作业板已存档，可随时回看与补录。'
-})
-const syncText = computed(() => {
-  if (!lastSync.value) return '正在获取云端数据…'
-  return `云端已同步 · ${formatClockSec(lastSync.value)}`
 })
 
 let pollTimer = null
@@ -67,7 +62,6 @@ async function loadBoard(silent = false) {
   error.value = ''
   try {
     board.value = await api.get(`/board?date=${date.value}`)
-    lastSync.value = new Date()
   } catch (err) {
     error.value = err.message
   } finally {
@@ -100,16 +94,19 @@ function onDateInput(event) {
   }
 }
 
-async function toggleDone(item) {
-  if (busyItem.value) return
-  busyItem.value = item.id
+function openSubmissions(item) {
+  submissionItemId.value = item.id
+}
+
+async function setSubmitted(student, submitted) {
+  if (!activeSubmissionItem.value || busyStudent.value) return
+  busyStudent.value = student.id
   try {
-    board.value = await api.post(`/items/${item.id}/toggle`)
-    lastSync.value = new Date()
+    board.value = await api.put(`/items/${activeSubmissionItem.value.id}/submissions/${student.id}`, { submitted })
   } catch (err) {
     pushToast(err.message, 'error')
   } finally {
-    busyItem.value = null
+    busyStudent.value = null
   }
 }
 
@@ -141,7 +138,7 @@ async function carryYesterday() {
 }
 
 async function removeItem(item) {
-  const ok = await confirmDialog(`「${item.subject}」作业及学生打卡记录将被清除。`, {
+  const ok = await confirmDialog(`「${item.subject}」作业、提交登记与附件将被清除。`, {
     title: '删除这条作业？',
     danger: true
   })
@@ -166,7 +163,6 @@ function openEdit(item) {
 
 function onSaved(payload) {
   board.value = payload
-  lastSync.value = new Date()
 }
 
 onMounted(async () => {
@@ -180,7 +176,6 @@ onMounted(async () => {
       loadBoard(true)
       loadNotices()
     }
-    now.value = new Date()
   }, Math.max(Number(state.settings.autoSyncSeconds) || 30, 10) * 1000)
 })
 
@@ -235,7 +230,7 @@ onBeforeUnmount(() => {
             </span>
             <span class="hero-chip"><strong>{{ items.length }}</strong> 项作业</span>
             <span v-if="urgentCount" class="hero-chip"><strong>{{ urgentCount }}</strong> 项加急</span>
-            <span class="hero-chip">最近截止 <strong>{{ nearestDeadline }}</strong></span>
+            <span class="hero-chip">最早完成 <strong>{{ nearestDeadline === '—' ? '—' : `${nearestDeadline}前` }}</strong></span>
             <span v-if="board.published === false" class="hero-chip" style="background: rgba(245, 158, 11, 0.22)">
               草稿状态
             </span>
@@ -248,10 +243,8 @@ onBeforeUnmount(() => {
               <div class="ring-inner">{{ progress }}%</div>
             </div>
             <div>
-              <div class="hero-progress-label">{{ isStudent ? '我的打卡进度' : '班级完成进度' }}</div>
-              <div class="hero-progress-value">
-                {{ isStudent ? `${ownDone} / ${items.length} 项` : `${board.totalDone} 人次完成` }}
-              </div>
+              <div class="hero-progress-label">班级提交进度</div>
+              <div class="hero-progress-value">{{ board.totalDone }} 人次已交</div>
             </div>
           </div>
 
@@ -303,15 +296,15 @@ onBeforeUnmount(() => {
         <div class="stat-card">
           <div class="stat-icon blue"><Icon name="clock" :size="19" /></div>
           <div>
-            <div class="stat-value">{{ nearestDeadline }}</div>
-            <div class="stat-label">最近截止时间</div>
+            <div class="stat-value">{{ nearestDeadline === '—' ? '—' : `${nearestDeadline}前` }}</div>
+            <div class="stat-label">最早完成课时</div>
           </div>
         </div>
         <div class="stat-card">
           <div class="stat-icon green"><Icon name="activity" :size="19" /></div>
           <div>
             <div class="stat-value">{{ progress }}%</div>
-            <div class="stat-label">{{ isStudent ? '我的完成度' : '全班完成度' }}</div>
+            <div class="stat-label">全班提交进度</div>
           </div>
         </div>
       </div>
@@ -329,10 +322,7 @@ onBeforeUnmount(() => {
       <div class="board-toolbar">
         <div>
           <div class="section-title">{{ isToday ? '作业清单' : `${formatDateCN(date)} 作业清单` }}</div>
-          <div class="section-sub">
-            {{ syncText }}
-            <span v-if="board.updatedAt"> · 最后编辑 {{ relativeTime(board.updatedAt) }}</span>
-          </div>
+          <div class="section-sub">云端数据已同步 · 提交情况由老师登记</div>
         </div>
         <div class="row gap-8">
           <span class="badge" :class="board.published ? 'badge-green' : 'badge-amber'">
@@ -352,7 +342,7 @@ onBeforeUnmount(() => {
           v-for="item in items"
           :key="item.id"
           class="hw-card"
-          :class="{ 'is-done': item.done, 'is-urgent': item.priority === 'urgent' }"
+          :class="{ 'is-done': board.studentCount > 0 && item.doneCount === board.studentCount, 'is-urgent': item.priority === 'urgent' }"
           :style="{ '--accent': subjectColor(item.subject) }"
         >
           <div class="hw-top">
@@ -364,10 +354,7 @@ onBeforeUnmount(() => {
             </span>
             <div style="min-width: 0">
               <div class="hw-subject">{{ item.subject }}</div>
-              <div class="hw-count">
-                <template v-if="isTeacher">{{ item.doneCount }} 人已打卡</template>
-                <template v-else>{{ item.done ? '已完成打卡' : '待完成' }}</template>
-              </div>
+              <div class="hw-count">{{ item.doneCount }} / {{ board.studentCount }} 人已交</div>
             </div>
             <span class="spacer" />
             <span v-if="item.priority === 'urgent'" class="priority-pill">
@@ -377,24 +364,25 @@ onBeforeUnmount(() => {
 
           <p class="hw-content">{{ item.content }}</p>
 
+          <div v-if="item.attachments?.length" class="hw-attachments">
+            <a v-for="file in item.attachments" :key="file.id" :href="`/api/attachments/${file.id}/download`" class="hw-attachment">
+              <Icon name="link" :size="12" />{{ file.filename }}
+            </a>
+          </div>
+
           <div class="hw-meta">
             <span v-if="item.deadline" class="hw-deadline">
-              <Icon name="clock" :size="12" />截止 {{ item.deadline }}
+              <Icon name="clock" :size="12" />{{ item.deadline }}前完成
             </span>
-            <span v-if="item.done" class="badge badge-green">已打卡</span>
           </div>
 
           <div v-if="item.note" class="hw-note">{{ item.note }}</div>
 
           <div class="hw-footer">
-            <template v-if="isStudent">
-              <button class="hw-check" :class="{ done: item.done }" :disabled="busyItem === item.id" @click="toggleDone(item)">
-                <Icon :name="item.done ? 'check' : 'clock'" :size="14" />
-                {{ item.done ? '已完成' : '标记完成' }}
-              </button>
-            </template>
-            <span v-else-if="isTeacher" class="text-xs faint">学生端可逐项打卡</span>
-            <span v-else class="text-xs faint">只读视图</span>
+            <button v-if="isTeacher" class="btn btn-soft btn-sm" @click="openSubmissions(item)">
+              <Icon name="check" :size="14" />登记提交
+            </button>
+            <span v-else class="text-xs faint">提交情况由老师登记</span>
 
             <div v-if="isTeacher" class="hw-actions">
               <button class="btn btn-ghost btn-icon btn-sm" title="编辑" @click="openEdit(item)">
@@ -419,6 +407,48 @@ onBeforeUnmount(() => {
           <button class="btn btn-outline" @click="carryYesterday"><Icon name="copy" :size="15" />复制昨日</button>
         </div>
       </div>
+
+      <Modal
+        :open="!!activeSubmissionItem"
+        :title="activeSubmissionItem ? `${activeSubmissionItem.subject} · 登记提交` : '登记提交'"
+        size="lg"
+        @close="submissionItemId = null"
+      >
+        <template v-if="activeSubmissionItem">
+          <div class="submission-summary">
+            <div><b>{{ activeSubmissionItem.doneCount }}</b><span>人已交</span></div>
+            <div><b>{{ activeSubmissionItem.pendingStudents.length }}</b><span>人未交</span></div>
+            <p>点击学生姓名即可切换已交 / 未交状态，登记后立即同步到班级大屏。</p>
+          </div>
+          <div v-if="submissionStudents.length" class="submission-grid">
+            <button
+              v-for="student in submissionStudents"
+              :key="student.id"
+              type="button"
+              class="submission-student"
+              :class="{ submitted: student.submitted }"
+              :disabled="busyStudent === student.id"
+              @click="setSubmitted(student, !student.submitted)"
+            >
+              <span class="submission-avatar">{{ student.name.slice(0, 1) }}</span>
+              <span class="submission-name">{{ student.name }}</span>
+              <span class="submission-status">
+                <Icon v-if="busyStudent === student.id" name="refresh" :size="13" class="spin" />
+                <Icon v-else-if="student.submitted" name="check" :size="13" />
+                {{ student.submitted ? '已交' : '未交' }}
+              </span>
+            </button>
+          </div>
+          <div v-else class="empty-block" style="border: none; padding: 28px">
+            <div class="empty-title">还没有学生名单</div>
+            <div class="empty-desc">请由超级管理员在用户管理中通过 Excel 导入学生。</div>
+          </div>
+        </template>
+        <template #footer>
+          <span class="text-xs faint" style="margin-right: auto">共 {{ board.studentCount }} 名学生</span>
+          <button class="btn btn-primary" @click="submissionItemId = null">完成登记</button>
+        </template>
+      </Modal>
 
       <HomeworkDialog
         :open="dialogOpen"

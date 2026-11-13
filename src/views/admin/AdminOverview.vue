@@ -52,7 +52,7 @@ onMounted(load)
 
     <template v-else-if="data">
       <div class="stats-grid">
-        <div class="admin-stat">
+        <div class="admin-stat tone-violet">
           <div class="stat-top">
             <span class="stat-icon"><Icon name="users" :size="18" /></span>
             <span class="badge badge-gray">{{ data.stats.students }} 学生</span>
@@ -60,7 +60,7 @@ onMounted(load)
           <div class="stat-value">{{ data.stats.totalUsers }}</div>
           <div class="stat-label">注册账号总数</div>
         </div>
-        <div class="admin-stat">
+        <div class="admin-stat tone-blue">
           <div class="stat-top">
             <span class="stat-icon blue"><Icon name="monitor" :size="18" /></span>
             <span class="badge badge-green"><span class="dot" />{{ data.stats.online }} 在线</span>
@@ -68,7 +68,7 @@ onMounted(load)
           <div class="stat-value">{{ data.stats.devices }}</div>
           <div class="stat-label">已识别设备</div>
         </div>
-        <div class="admin-stat">
+        <div class="admin-stat tone-amber">
           <div class="stat-top">
             <span class="stat-icon amber"><Icon name="book" :size="18" /></span>
             <span class="badge badge-amber">{{ data.stats.pendingDevices }} 待绑定</span>
@@ -76,7 +76,7 @@ onMounted(load)
           <div class="stat-value">{{ data.stats.todayItems }}</div>
           <div class="stat-label">今日作业科目</div>
         </div>
-        <div class="admin-stat">
+        <div class="admin-stat tone-green">
           <div class="stat-top">
             <span class="stat-icon green"><Icon name="activity" :size="18" /></span>
             <span class="badge badge-primary">今日</span>
@@ -91,7 +91,7 @@ onMounted(load)
           <div class="card-head">
             <div>
               <div class="card-title">近 7 日作业趋势</div>
-              <div class="card-sub">每日作业科目数量与打卡人次</div>
+              <div class="card-sub">每日作业科目数量与提交人次</div>
             </div>
             <span class="badge badge-primary">作业量</span>
           </div>
@@ -106,7 +106,7 @@ onMounted(load)
           </div>
           <div class="row gap-16 wrap mt-12 text-xs faint">
             <span class="row gap-4"><span class="dot" style="background: #4f46e5" />作业科次数</span>
-            <span>最近 7 日累计打卡 {{ data.days.reduce((a, d) => a + d.done, 0) }} 人次</span>
+            <span>最近 7 日累计提交 {{ data.days.reduce((a, d) => a + d.done, 0) }} 人次</span>
           </div>
         </div>
 
@@ -166,7 +166,7 @@ onMounted(load)
                 <span class="badge badge-gray" style="height: 20px; font-size: 10px">{{ item.subject }}</span>
                 <span class="truncate">{{ item.content }}</span>
               </span>
-              <span class="text-xs faint nowrap">{{ item.doneCount }} 人打卡</span>
+              <span class="text-xs faint nowrap">{{ item.doneCount }} 人已交</span>
             </div>
           </div>
           <div v-else class="text-sm faint">今日暂无作业</div>

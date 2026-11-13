@@ -90,7 +90,7 @@ async function handleLogout() {
               保存
             </button>
           </div>
-          <div class="hint">昵称会显示在作业打卡与设备列表中。</div>
+          <div class="hint">昵称会显示在作业提交登记与设备列表中。</div>
         </div>
 
         <div class="form-grid">
