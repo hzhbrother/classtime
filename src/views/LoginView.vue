@@ -14,23 +14,6 @@ const showPassword = ref(false)
 
 const adminMode = computed(() => route.query.admin === '1')
 
-const demoAccounts = [
-  { role: '超级管理员', account: 'admin', password: 'admin123', color: '#4f46e5', initial: '管' },
-  { role: '班主任', account: 'teacher', password: 'teacher123', color: '#0891b2', initial: '师' },
-  { role: '学生', account: 'student', password: 'student123', color: '#f59e0b', initial: '生' },
-  { role: '班级大屏', account: 'display', password: 'display123', color: '#7c3aed', initial: '屏' }
-]
-
-const previewItems = [
-  { subject: '数学', content: '练习册 3.2 节 1-12 题', color: '#3b82f6', initial: '数' },
-  { subject: '英语', content: 'Unit 4 单词 + 阅读两篇', color: '#8b5cf6', initial: '英' },
-  { subject: '物理', content: '实验报告：伏安特性曲线', color: '#f59e0b', initial: '物' }
-]
-
-const demoList = computed(() =>
-  adminMode.value ? demoAccounts.filter((item) => item.account === 'admin') : demoAccounts
-)
-
 async function submit() {
   if (!form.username.trim() || !form.password) {
     error.value = '请输入账号和密码'
@@ -59,12 +42,6 @@ async function submit() {
   } finally {
     loading.value = false
   }
-}
-
-async function quickLogin(account, password) {
-  form.username = account
-  form.password = password
-  await submit()
 }
 </script>
 
@@ -115,21 +92,6 @@ async function quickLogin(account, password) {
           <div class="auth-feature">
             <span class="auth-feature-icon"><Icon name="shield" :size="15" /></span>
             <span>设备识别与绑定 · 超级管理员统一管控</span>
-          </div>
-        </div>
-
-        <div class="auth-preview">
-          <div class="between" style="padding: 0 4px 8px">
-            <span style="font-size: 11px; letter-spacing: 0.08em; color: rgba(255, 255, 255, 0.5)">今日作业 · LIVE</span>
-            <span class="badge badge-dark" style="height: 20px; font-size: 10px">实时同步</span>
-          </div>
-          <div v-for="item in previewItems" :key="item.subject" class="auth-preview-row">
-            <span class="auth-preview-dot" :style="{ background: item.color }">{{ item.initial }}</span>
-            <div style="min-width: 0; flex: 1">
-              <div class="auth-preview-title">{{ item.subject }} · {{ state.settings.className }}</div>
-              <div class="auth-preview-sub">{{ item.content }}</div>
-            </div>
-            <Icon name="check" :size="15" style="color: rgba(255, 255, 255, 0.35)" />
           </div>
         </div>
       </div>
@@ -210,26 +172,6 @@ async function quickLogin(account, password) {
             <span style="opacity: 0.4; margin: 0 6px">·</span>
             <router-link :to="{ path: '/login', query: { admin: '1' } }">管理员入口</router-link>
           </template>
-        </div>
-
-        <div class="demo-accounts">
-          <div class="demo-accounts-title">{{ adminMode ? '管理员演示账号' : '演示账号 · 一键登录' }}</div>
-          <div class="demo-grid">
-            <button
-              v-for="item in demoList"
-              :key="item.account"
-              class="demo-btn"
-              type="button"
-              :disabled="loading"
-              @click="quickLogin(item.account, item.password)"
-            >
-              <span class="demo-btn-dot" :style="{ background: item.color }">{{ item.initial }}</span>
-              <span style="min-width: 0">
-                <span class="demo-btn-role">{{ item.role }}</span>
-                <span class="demo-btn-account">{{ item.account }} / {{ item.password }}</span>
-              </span>
-            </button>
-          </div>
         </div>
       </div>
     </section>

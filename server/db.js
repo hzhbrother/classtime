@@ -382,98 +382,21 @@ export async function getBoardPayload(date, userId = null, role = 'student') {
 /* ------------------------------------------------------------------ */
 
 export async function seedIfEmpty() {
-  const userCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM users').get()).n)
   const now = nowIso()
 
+  // 全新数据库只创建超级管理员，其余账号、作业、公告、设备全部由管理员自行创建
+  const userCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM users').get()).n)
   if (userCount === 0) {
-    const users = [
-      ['admin', 'admin123', '林知远 · 超级管理员', 'super_admin', '#4f46e5', '高二(3)班'],
-      ['teacher', 'teacher123', '王舒宁 · 班主任', 'teacher', '#0891b2', '高二(3)班'],
-      ['student', 'student123', '陈一鸣', 'student', '#f59e0b', '高二(3)班'],
-      ['display', 'display123', '班级大屏', 'display', '#7c3aed', '高二(3)班']
-    ]
-    for (const [username, password, name, role, color, className] of users) {
-      await db
-        .prepare(
-          'INSERT INTO users (username, password_hash, name, role, color, class_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (username) DO NOTHING'
-        )
-        .run(username, hashPassword(password), name, role, color, className, now)
-    }
+    await db
+      .prepare(
+        'INSERT INTO users (username, password_hash, name, role, color, class_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (username) DO NOTHING'
+      )
+      .run('admin', hashPassword(process.env.ADMIN_INITIAL_PASSWORD || 'admin123'), '超级管理员', 'super_admin', '#4f46e5', DEFAULT_SETTINGS.class_name, now)
   }
 
   const settingCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM settings').get()).n)
   if (settingCount === 0) {
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) await setSetting(key, value)
-  }
-
-  const boardCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM boards').get()).n)
-  if (boardCount === 0) {
-    const today = dateStr()
-    const yesterday = addDays(today, -1)
-    const seedBoard = async (date, items) => {
-      const board = await ensureBoard(date)
-      for (let idx = 0; idx < items.length; idx++) {
-        const it = items[idx]
-        await db
-          .prepare(
-            `INSERT INTO items (board_id, subject, content, deadline, priority, note, sort, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(board.id, it[0], it[1], it[2], it[3] || 'normal', it[4] || '', idx, now, now)
-      }
-    }
-    await seedBoard(yesterday, [
-      ['语文', '整理《赤壁赋》通假字与古今异义，完成课后练习 P38。', '21:00'],
-      ['数学', '完成 3.1 节练习册 1-15 题，订正周测错题。', '21:30'],
-      ['英语', '背诵 Unit 3 单词，完成语法填空两篇。', '20:30'],
-      ['物理', '复习牛顿第二定律，整理错题本。', '22:00'],
-      ['化学', '完成《化学反应原理》第三章课后题。', '21:00']
-    ])
-    await seedBoard(today, [
-      ['语文', '完成《赤壁赋》课后练习 P42-43，并背诵全文第三段。', '21:00', 'normal', '明早课前抽查背诵'],
-      ['数学', '完成练习册 3.2 节 1-12 题，订正周测错题并写清错因。', '21:30', 'urgent', '明天第一节讲评'],
-      ['英语', '背诵 Unit 4 单词表，完成阅读训练两篇（限时 25 分钟）。', '20:30'],
-      ['物理', '完成实验报告：测量小灯泡的伏安特性曲线，画出 U-I 图像。', '22:00'],
-      ['化学', '完成《化学反应原理》第四章选择题 1-10，标注不确定的选项。', '21:00'],
-      ['生物', '整理「细胞呼吸」知识点思维导图，A4 纸手绘。', '20:00']
-    ])
-    await db
-      .prepare('UPDATE boards SET title = ?, note = ? WHERE date = ?')
-      .run('今日作业', '请同学们按时完成，并在班级作业云上打卡确认。', today)
-  }
-
-  const noticeCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM notices').get()).n)
-  if (noticeCount === 0) {
-    const notices = [
-      ['班级大扫除', '明天下午第三节课后举行班级大扫除，请各小组提前分工，值日组留到最后检查。', 'info'],
-      ['本周家长会', '本周五 18:30 在本班教室召开家长会，请同学们提前转告家长。', 'warning'],
-      ['降温提醒', '近期气温下降明显，请同学们注意添衣，跑操照常进行。', 'info']
-    ]
-    for (const [title, content, level] of notices) {
-      await db
-        .prepare('INSERT INTO notices (title, content, level, active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)')
-        .run(title, content, level, now, now)
-    }
-  }
-
-  const deviceCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM devices').get()).n)
-  if (deviceCount === 0) {
-    const teacherId = (await db.prepare("SELECT id FROM users WHERE username = 'teacher'").get())?.id
-    const studentId = (await db.prepare("SELECT id FROM users WHERE username = 'student'").get())?.id
-    const displayId = (await db.prepare("SELECT id FROM users WHERE username = 'display'").get())?.id
-    const rows = [
-      ['demo-display-lobby', '教室大屏 · 鸿合', displayId, 'display', 'Android 11', 'Chrome 118', 'Android', '1920x1080', 'display', '192.168.1.23', 'Mozilla/5.0 (Linux; Android 11) Chrome/118.0', new Date(Date.now() - 1000 * 60 * 60 * 20)],
-      ['demo-teacher-laptop', '王老师 · MacBook Air', teacherId, 'teacher', 'macOS 15.1', 'Safari 18', 'MacIntel', '1512x982', 'desktop', '192.168.1.16', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1', new Date(Date.now() - 1000 * 60 * 42)],
-      ['demo-student-phone', '陈一鸣 · iPhone 15', studentId, 'student', 'iOS 18.1', 'Safari', 'iPhone', '393x852', 'mobile', '192.168.1.77', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) Safari/604.1', new Date(Date.now() - 1000 * 60 * 8)]
-    ]
-    for (const [uuid, name, userIdVal, identity, os, browser, platform, screen, deviceType, ip, ua, lastSeen] of rows) {
-      await db
-        .prepare(
-          `INSERT INTO devices (uuid, name, user_id, identity, status, os, browser, platform, screen, device_type, ip, ua, last_seen, created_at, bound_at)
-           VALUES (?, ?, ?, ?, 'bound', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (uuid) DO NOTHING`
-        )
-        .run(uuid, name, userIdVal, identity, os, browser, platform, screen, deviceType, ip, ua, lastSeen.toISOString(), now, now)
-    }
   }
 }
 

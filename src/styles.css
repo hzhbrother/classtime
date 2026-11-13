@@ -2244,49 +2244,6 @@ table.data tbody tr:hover {
   flex: none;
 }
 
-.auth-preview {
-  position: relative;
-  z-index: 1;
-  margin-top: 40px;
-  max-width: 430px;
-  padding: 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  backdrop-filter: blur(12px);
-  transform: rotate(-1.2deg);
-}
-
-.auth-preview-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 4px;
-}
-
-.auth-preview-dot {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: #fff;
-  flex: none;
-}
-
-.auth-preview-title {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.auth-preview-sub {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 1px;
-}
-
 .auth-panel {
   display: flex;
   align-items: center;
@@ -2345,67 +2302,6 @@ table.data tbody tr:hover {
 .auth-switch a {
   color: var(--primary);
   font-weight: 600;
-}
-
-.demo-accounts {
-  margin-top: 24px;
-  padding-top: 18px;
-  border-top: 1px dashed var(--border);
-}
-
-.demo-accounts-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--faint);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-bottom: 9px;
-}
-
-.demo-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-}
-
-.demo-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 9px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.demo-btn:hover {
-  border-color: #c7cbff;
-  background: #f5f6ff;
-}
-
-.demo-btn-dot {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  font-weight: 700;
-  color: #fff;
-  flex: none;
-}
-
-.demo-btn-role {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.demo-btn-account {
-  font-size: 10px;
-  color: var(--faint);
-  margin-top: 1px;
 }
 
 .auth-mobile-brand {
