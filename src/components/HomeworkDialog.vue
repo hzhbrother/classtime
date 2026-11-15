@@ -4,6 +4,7 @@ import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import { api } from '../lib/api'
 import { pushToast, confirmDialog } from '../lib/store'
+import { shrinkFile } from '../lib/compress'
 import { subjectColor } from '../lib/format'
 
 const props = defineProps({
@@ -15,7 +16,7 @@ const emit = defineEmits(['close', 'saved'])
 
 const subjects = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
 const lessons = Array.from({ length: 12 }, (_, index) => `第${index + 1}节课`)
-const accept = '.pdf,.doc,.docx,.dot,.dotx,.xls,.xlsx,.xlt,.xltx,.csv,.ppt,.pptx,.pot,.potx,.wps,.wpt,.et,.ett,.dps,.dpt,.txt,.zip,.rar,.7z'
+const ATTACHMENT_LIMIT = 3 * 1024 * 1024
 const form = reactive({ subject: '语文', content: '', deadline: '第1节课', priority: 'normal', note: '' })
 const loading = ref(false)
 const error = ref('')
@@ -61,12 +62,27 @@ async function onFiles(event) {
   if (!files.length) return
   error.value = ''
   const currentBytes = newAttachments.value.reduce((sum, file) => sum + file.size, 0)
-  if (currentBytes + files.reduce((sum, file) => sum + file.size, 0) > 3 * 1024 * 1024) {
-    error.value = '单次上传的附件合计不能超过 3 MB'
-    return
-  }
+  const prepared = []
+  const compressedNotes = []
+  let total = currentBytes
   try {
-    for (const file of files) {
+    for (const original of files) {
+      let file = original
+      if (total + file.size > ATTACHMENT_LIMIT) {
+        const shrunk = await shrinkFile(file, ATTACHMENT_LIMIT - total)
+        if (shrunk) {
+          compressedNotes.push(`${original.name} 已压缩 ${formatFileSize(original.size)} → ${formatFileSize(shrunk.size)}`)
+          file = shrunk
+        }
+      }
+      if (total + file.size > ATTACHMENT_LIMIT) {
+        error.value = `「${original.name}」为 ${formatFileSize(original.size)}，压缩后仍超过单次 3 MB 上限，请先手动压缩再上传。`
+        return
+      }
+      total += file.size
+      prepared.push(file)
+    }
+    for (const file of prepared) {
       newAttachments.value.push({
         filename: file.name,
         mime: file.type || 'application/octet-stream',
@@ -74,6 +90,7 @@ async function onFiles(event) {
         data: await readFile(file)
       })
     }
+    if (compressedNotes.length) pushToast(compressedNotes.join('；'), 'success')
   } catch (err) {
     error.value = err.message
   }
@@ -210,11 +227,11 @@ async function remove() {
 
       <div class="field" style="margin-bottom: 0">
         <label class="label">作业附件 <span class="faint" style="font-weight: 400">（可选）</span></label>
-        <input ref="fileInput" type="file" multiple :accept="accept" style="display: none" @change="onFiles" />
+        <input ref="fileInput" type="file" multiple style="display: none" @change="onFiles" />
         <button type="button" class="btn btn-outline btn-sm" :disabled="loading" @click="fileInput.click()">
           <Icon name="plus" :size="14" />选择文件
         </button>
-        <div class="hint">支持 PDF、Word、Excel、PPT、WPS 等格式，单次上传合计不超过 3 MB。</div>
+        <div class="hint">支持任意格式文件。单次合计不超过 3 MB；图片、PDF、Office/WPS 超出时会自动尝试压缩，压缩后仍超限则需要手动压缩。附件上传满 24 小时后自动清理。</div>
         <div v-if="existingAttachments.length || newAttachments.length" class="attachment-list">
           <div v-for="file in existingAttachments" :key="file.id" class="attachment-chip">
             <a :href="`/api/attachments/${file.id}/download`" class="attachment-name" :title="file.filename">

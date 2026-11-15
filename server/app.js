@@ -966,7 +966,16 @@ app.delete('/api/admin/notices/:id', isAdmin, h(async (req, res) => {
 /* 每日自动更新                                                         */
 /* ------------------------------------------------------------------ */
 
+/* 附件只在当天有效：每天首次 tick 时清掉昨天及更早的附件 */
+export async function cleanupExpiredAttachments() {
+  const info = await db.prepare(
+    "DELETE FROM attachments WHERE to_char((created_at::timestamptz AT TIME ZONE 'Asia/Shanghai')::date, 'YYYY-MM-DD') < ?"
+  ).run(dateStr())
+  return Number(info.changes || 0)
+}
+
 export async function dailyTick() {
+  await cleanupExpiredAttachments()
   const today = dateStr()
   const board = await getBoardRow(today)
   if (board) return { created: false, date: today, copied: 0 }
