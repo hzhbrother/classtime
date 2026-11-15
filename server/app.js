@@ -403,35 +403,96 @@ function httpError(status, message) {
   return err
 }
 
-const MAX_ATTACHMENT_BATCH_BYTES = 3 * 1024 * 1024
+const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
+const MAX_UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024
+
+function cleanFilename(input) {
+  return String(input || '').split(/[\\/]/).pop().replace(/[\x00-\x1f]/g, '').trim().slice(0, 160)
+}
 
 function parseAttachments(input) {
   if (input === undefined) return []
-  if (!Array.isArray(input) || input.length > 10) throw httpError(400, '每次最多上传 10 个附件')
+  if (!Array.isArray(input) || input.length > 20) throw httpError(400, '每次最多上传 20 个附件')
   let totalBytes = 0
   return input.map((file) => {
-    const filename = String(file?.filename || file?.name || '').split(/[\\/]/).pop().replace(/[\x00-\x1f]/g, '').trim().slice(0, 120)
+    const filename = cleanFilename(file?.filename || file?.name)
     const mime = String(file?.mime || file?.type || 'application/octet-stream').slice(0, 120)
+    if (!filename) throw httpError(400, '附件缺少文件名')
+    if (file?.uploadId) {
+      const size = Number(file?.size || 0)
+      if (!size || size > MAX_ATTACHMENT_BYTES) throw httpError(400, '单个附件不能超过 100 MB')
+      totalBytes += size
+      if (totalBytes > MAX_ATTACHMENT_BYTES) throw httpError(400, '附件合计不能超过 100 MB')
+      return { uploadId: String(file.uploadId), filename, mime, size }
+    }
     const base64 = String(file?.data || '').replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '')
-    if (!filename || !base64 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length % 4 !== 0) {
+    if (!base64 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length % 4 !== 0) {
       throw httpError(400, '附件内容不完整，请重新选择文件')
     }
     const data = Buffer.from(base64, 'base64')
     totalBytes += data.length
-    if (!data.length || totalBytes > MAX_ATTACHMENT_BATCH_BYTES) {
-      throw httpError(400, '单次上传的附件合计不能超过 3 MB')
+    if (!data.length || totalBytes > MAX_ATTACHMENT_BYTES) {
+      throw httpError(400, '附件合计不能超过 100 MB')
     }
     return { filename, mime, data }
   })
 }
 
-async function insertAttachments(itemId, files) {
+async function insertAttachments(itemId, files, userId) {
   for (const file of files) {
+    let buffer = file.data
+    if (file.uploadId) {
+      const pending = await db.prepare('SELECT * FROM pending_uploads WHERE id = ? AND user_id = ?').get(file.uploadId, userId)
+      if (!pending) throw httpError(400, '附件上传已失效，请重新选择文件')
+      const rows = await db.prepare('SELECT data FROM upload_chunks WHERE upload_id = ? ORDER BY idx').all(file.uploadId)
+      buffer = Buffer.concat(rows.map((row) => row.data))
+      if (!buffer.length || buffer.length > MAX_ATTACHMENT_BYTES) throw httpError(400, '附件大小不合法')
+      await db.prepare('DELETE FROM pending_uploads WHERE id = ?').run(file.uploadId)
+    }
     await db.prepare(
       'INSERT INTO attachments (item_id, filename, mime, size, data, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(itemId, file.filename, file.mime, file.data.length, file.data, nowIso())
+    ).run(itemId, file.filename, file.mime, buffer.length, buffer, nowIso())
   }
 }
+
+/* 分片上传：先分片写入临时表，保存作业时再合并成附件 */
+app.post('/api/uploads', canEditBoard, h(async (req, res) => {
+  const filename = cleanFilename(req.body?.filename)
+  const mime = String(req.body?.mime || 'application/octet-stream').slice(0, 120)
+  const size = Number(req.body?.size || 0)
+  const chunkCount = Number(req.body?.chunkCount || 0)
+  if (!filename) throw httpError(400, '文件名不能为空')
+  if (!size || size > MAX_ATTACHMENT_BYTES) throw httpError(400, '单个附件不能超过 100 MB')
+  if (!Number.isInteger(chunkCount) || chunkCount < 1 || chunkCount > 120) throw httpError(400, '分片数量不合法')
+  const id = randomBytes(16).toString('hex')
+  await db.prepare(
+    'INSERT INTO pending_uploads (id, user_id, filename, mime, size, chunk_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, req.user.id, filename, mime, size, chunkCount, nowIso())
+  res.json({ id, chunkSize: MAX_UPLOAD_CHUNK_BYTES })
+}))
+
+app.put('/api/uploads/:id/chunks/:idx', canEditBoard, h(async (req, res) => {
+  const pending = await db.prepare('SELECT * FROM pending_uploads WHERE id = ? AND user_id = ?')
+    .get(String(req.params.id), req.user.id)
+  if (!pending) throw httpError(404, '上传任务不存在或已失效')
+  const idx = Number(req.params.idx)
+  if (!Number.isInteger(idx) || idx < 0 || idx >= pending.chunk_count) throw httpError(400, '分片序号不合法')
+  const base64 = String(req.body?.data || '').replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '')
+  if (!base64 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length % 4 !== 0) {
+    throw httpError(400, '分片内容不合法')
+  }
+  const data = Buffer.from(base64, 'base64')
+  if (!data.length || data.length > MAX_UPLOAD_CHUNK_BYTES) throw httpError(400, '分片大小不合法')
+  await db.prepare(
+    'INSERT INTO upload_chunks (upload_id, idx, data) VALUES (?, ?, ?) ON CONFLICT (upload_id, idx) DO UPDATE SET data = EXCLUDED.data'
+  ).run(pending.id, idx, data)
+  res.json({ ok: true, index: idx })
+}))
+
+app.delete('/api/uploads/:id', canEditBoard, h(async (req, res) => {
+  await db.prepare('DELETE FROM pending_uploads WHERE id = ? AND user_id = ?').run(String(req.params.id), req.user.id)
+  res.json({ ok: true })
+}))
 
 app.get('/api/board', h(async (req, res) => {
   const settings = await getSettings()
@@ -486,7 +547,7 @@ app.post('/api/board/:date/items', canEditBoard, h(async (req, res) => {
     `INSERT INTO items (board_id, subject, content, deadline, priority, note, sort, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
   ).run(board.id, String(subject).trim().slice(0, 20), String(content).trim().slice(0, 1000), String(deadline).trim().slice(0, 20), priority, String(note).slice(0, 300), maxSort + 1, now, now)
-  await insertAttachments(Number(info.lastInsertRowid), files)
+  await insertAttachments(Number(info.lastInsertRowid), files, req.user.id)
   await db.prepare('UPDATE boards SET updated_at = ? WHERE id = ?').run(now, board.id)
   await addLog({ userId: req.user.id, username: req.user.username, action: 'item.create', detail: `为 ${date} 添加 ${subject} 作业`, ip: clientIp(req) })
   broadcast('board', { date })
@@ -523,7 +584,7 @@ app.patch('/api/items/:id', canEditBoard, h(async (req, res) => {
   for (const attachmentId of removeIds) {
     await db.prepare('DELETE FROM attachments WHERE id = ? AND item_id = ?').run(attachmentId, id)
   }
-  await insertAttachments(id, files)
+  await insertAttachments(id, files, req.user.id)
   await db.prepare('UPDATE boards SET updated_at = ? WHERE id = ?').run(now, item.board_id)
   await addLog({ userId: req.user.id, username: req.user.username, action: 'item.update', detail: `修改 ${item.date} 的 ${item.subject} 作业`, ip: clientIp(req) })
   broadcast('board', { date: item.date })
@@ -544,13 +605,34 @@ app.delete('/api/items/:id', canEditBoard, h(async (req, res) => {
 app.get('/api/attachments/:id/download', h(async (req, res) => {
   const settings = await getSettings()
   if (!req.user && settings.allow_public_display !== '1') return res.status(401).json({ error: '请先登录' })
-  const row = await db.prepare('SELECT * FROM attachments WHERE id = ?').get(Number(req.params.id))
-  if (!row) return res.status(404).json({ error: '附件不存在或已删除' })
-  res.setHeader('Content-Type', row.mime || 'application/octet-stream')
-  res.setHeader('Content-Length', row.data.length)
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.filename)}`)
+  const id = Number(req.params.id)
+  const meta = await db.prepare('SELECT id, filename, mime, size FROM attachments WHERE id = ?').get(id)
+  if (!meta) return res.status(404).json({ error: '附件不存在或已删除' })
+  res.setHeader('Content-Type', meta.mime || 'application/octet-stream')
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(meta.filename)}`)
   res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.send(row.data)
+  res.setHeader('Accept-Ranges', 'bytes')
+
+  const match = /^bytes=(\d+)-(\d*)$/.exec(String(req.headers.range || '').trim())
+  if (!match) {
+    const row = await db.prepare('SELECT data FROM attachments WHERE id = ?').get(id)
+    res.setHeader('Content-Length', row.data.length)
+    return res.send(row.data)
+  }
+
+  const start = Number(match[1])
+  const requestedEnd = match[2] ? Number(match[2]) : start + MAX_UPLOAD_CHUNK_BYTES - 1
+  if (start >= meta.size || requestedEnd < start) {
+    res.setHeader('Content-Range', `bytes */${meta.size}`)
+    return res.status(416).end()
+  }
+  const end = Math.min(requestedEnd, meta.size - 1)
+  const row = await db.prepare('SELECT substring(data from $1::int for $2::int) AS part FROM attachments WHERE id = ?')
+    .get(start + 1, end - start + 1, id)
+  res.status(206)
+  res.setHeader('Content-Range', `bytes ${start}-${end}/${meta.size}`)
+  res.setHeader('Content-Length', row.part.length)
+  res.send(row.part)
 }))
 
 app.put('/api/items/:id/submissions/:studentId', canEditBoard, h(async (req, res) => {
@@ -966,11 +1048,15 @@ app.delete('/api/admin/notices/:id', isAdmin, h(async (req, res) => {
 /* 每日自动更新                                                         */
 /* ------------------------------------------------------------------ */
 
-/* 附件只在当天有效：每天首次 tick 时清掉昨天及更早的附件 */
+/* 附件只在当天有效：每天首次 tick 时清掉昨天及更早的附件与未完成上传 */
 export async function cleanupExpiredAttachments() {
+  const today = dateStr()
+  await db.prepare(
+    "DELETE FROM pending_uploads WHERE to_char((created_at::timestamptz AT TIME ZONE 'Asia/Shanghai')::date, 'YYYY-MM-DD') < ?"
+  ).run(today)
   const info = await db.prepare(
     "DELETE FROM attachments WHERE to_char((created_at::timestamptz AT TIME ZONE 'Asia/Shanghai')::date, 'YYYY-MM-DD') < ?"
-  ).run(dateStr())
+  ).run(today)
   return Number(info.changes || 0)
 }
 

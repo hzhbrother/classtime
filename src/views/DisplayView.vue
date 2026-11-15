@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '../components/Icon.vue'
 import { api } from '../lib/api'
+import { downloadAttachment } from '../lib/download'
 import { state, ensureSession } from '../lib/store'
 import { subscribeRealtime, realtime } from '../lib/realtime'
 import { subjectColor, subjectInitial, todayStr, shiftDate, weekdayCN, formatDateCN } from '../lib/format'
@@ -263,7 +264,7 @@ onBeforeUnmount(() => {
           </div>
           <p class="d-content">{{ item.content }}</p>
           <div v-if="item.attachments?.length" class="d-attachments">
-            <a v-for="file in item.attachments" :key="file.id" :href="`/api/attachments/${file.id}/download`">
+            <a v-for="file in item.attachments" :key="file.id" href="#" @click.prevent="downloadAttachment(file)">
               <Icon name="link" :size="12" />{{ file.filename }}
             </a>
           </div>

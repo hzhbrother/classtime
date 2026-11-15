@@ -190,6 +190,23 @@ export async function createSchema() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS pending_uploads (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      filename TEXT NOT NULL,
+      mime TEXT,
+      size INTEGER NOT NULL DEFAULT 0,
+      chunk_count INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS upload_chunks (
+      upload_id TEXT NOT NULL REFERENCES pending_uploads(id) ON DELETE CASCADE,
+      idx INTEGER NOT NULL,
+      data BYTEA NOT NULL,
+      PRIMARY KEY (upload_id, idx)
+    );
+
     CREATE TABLE IF NOT EXISTS completions (
       item_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
@@ -224,6 +241,7 @@ export async function createSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_items_board ON items (board_id);
     CREATE INDEX IF NOT EXISTS idx_attachments_item ON attachments (item_id);
+    CREATE INDEX IF NOT EXISTS idx_pending_uploads_user ON pending_uploads (user_id);
     CREATE INDEX IF NOT EXISTS idx_completions_user ON completions (user_id);
     CREATE INDEX IF NOT EXISTS idx_devices_user ON devices (user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);

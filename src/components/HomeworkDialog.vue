@@ -5,6 +5,7 @@ import Icon from './Icon.vue'
 import { api } from '../lib/api'
 import { pushToast, confirmDialog } from '../lib/store'
 import { shrinkFile } from '../lib/compress'
+import { downloadAttachment } from '../lib/download'
 import { subjectColor } from '../lib/format'
 
 const props = defineProps({
@@ -16,9 +17,9 @@ const emit = defineEmits(['close', 'saved'])
 
 const subjects = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
 const lessons = Array.from({ length: 12 }, (_, index) => `第${index + 1}节课`)
-const ATTACHMENT_LIMIT = 3 * 1024 * 1024
 const form = reactive({ subject: '语文', content: '', deadline: '第1节课', priority: 'normal', note: '' })
 const loading = ref(false)
+const uploading = ref(false)
 const error = ref('')
 const fileInput = ref(null)
 const existingAttachments = ref([])
@@ -28,7 +29,10 @@ const removeAttachmentIds = ref([])
 watch(
   () => props.open,
   (open) => {
-    if (!open) return
+    if (!open) {
+      discardAllPending()
+      return
+    }
     error.value = ''
     existingAttachments.value = [...(props.item?.attachments || [])]
     newAttachments.value = []
@@ -47,13 +51,49 @@ watch(
   }
 )
 
-function readFile(file) {
+const CHUNK_BYTES = 2 * 1024 * 1024
+const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
+const COMPRESS_THRESHOLD = 20 * 1024 * 1024
+
+function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).split(',')[1])
-    reader.onerror = () => reject(new Error(`无法读取文件：${file.name}`))
-    reader.readAsDataURL(file)
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
+    reader.onerror = () => reject(new Error('无法读取文件，请重试'))
+    reader.readAsDataURL(blob)
   })
+}
+
+async function uploadOne(original) {
+  let file = original
+  if (file.size > COMPRESS_THRESHOLD) {
+    const shrunk = await shrinkFile(file, MAX_ATTACHMENT_BYTES)
+    if (shrunk) file = shrunk
+  }
+  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`「${original.name}」超过 100 MB，无法上传`)
+  const chunkCount = Math.max(1, Math.ceil(file.size / CHUNK_BYTES))
+  const mime = file.type || 'application/octet-stream'
+  const { id } = await api.post('/uploads', {
+    filename: file.name,
+    mime,
+    size: file.size,
+    chunkCount
+  })
+  const entry = reactive({
+    uploadId: id,
+    filename: file.name,
+    mime,
+    size: file.size,
+    progress: 0,
+    ready: false
+  })
+  newAttachments.value.push(entry)
+  for (let index = 0; index < chunkCount; index += 1) {
+    const blob = file.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES)
+    await api.put(`/uploads/${id}/chunks/${index}`, { data: await blobToBase64(blob) })
+    entry.progress = Math.round(((index + 1) / chunkCount) * 100)
+  }
+  entry.ready = true
 }
 
 async function onFiles(event) {
@@ -61,39 +101,31 @@ async function onFiles(event) {
   event.target.value = ''
   if (!files.length) return
   error.value = ''
-  const currentBytes = newAttachments.value.reduce((sum, file) => sum + file.size, 0)
-  const prepared = []
-  const compressedNotes = []
-  let total = currentBytes
+  uploading.value = true
   try {
-    for (const original of files) {
-      let file = original
-      if (total + file.size > ATTACHMENT_LIMIT) {
-        const shrunk = await shrinkFile(file, ATTACHMENT_LIMIT - total)
-        if (shrunk) {
-          compressedNotes.push(`${original.name} 已压缩 ${formatFileSize(original.size)} → ${formatFileSize(shrunk.size)}`)
-          file = shrunk
-        }
-      }
-      if (total + file.size > ATTACHMENT_LIMIT) {
-        error.value = `「${original.name}」为 ${formatFileSize(original.size)}，压缩后仍超过单次 3 MB 上限，请先手动压缩再上传。`
-        return
-      }
-      total += file.size
-      prepared.push(file)
-    }
-    for (const file of prepared) {
-      newAttachments.value.push({
-        filename: file.name,
-        mime: file.type || 'application/octet-stream',
-        size: file.size,
-        data: await readFile(file)
-      })
-    }
-    if (compressedNotes.length) pushToast(compressedNotes.join('；'), 'success')
+    for (const file of files) await uploadOne(file)
   } catch (err) {
     error.value = err.message
+  } finally {
+    uploading.value = false
   }
+}
+
+async function discardUpload(entry) {
+  newAttachments.value = newAttachments.value.filter((item) => item !== entry)
+  if (entry.uploadId) {
+    try {
+      await api.delete(`/uploads/${entry.uploadId}`)
+    } catch {
+      /* 忽略清理失败 */
+    }
+  }
+}
+
+async function discardAllPending() {
+  const entries = newAttachments.value.filter((item) => item.uploadId)
+  newAttachments.value = []
+  await Promise.all(entries.map((entry) => api.delete(`/uploads/${entry.uploadId}`).catch(() => {})))
 }
 
 function removeExisting(file) {
@@ -110,6 +142,10 @@ async function save() {
     error.value = '请填写作业内容'
     return
   }
+  if (uploading.value || newAttachments.value.some((file) => !file.ready)) {
+    error.value = '附件还在上传中，请稍候'
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -119,7 +155,7 @@ async function save() {
       deadline: form.deadline,
       priority: form.priority,
       note: form.note.trim(),
-      attachments: newAttachments.value.map(({ filename, mime, data }) => ({ filename, mime, data })),
+      attachments: newAttachments.value.map(({ uploadId, filename, mime, size }) => ({ uploadId, filename, mime, size })),
       removeAttachmentIds: removeAttachmentIds.value
     }
     const board = props.item
@@ -228,13 +264,14 @@ async function remove() {
       <div class="field" style="margin-bottom: 0">
         <label class="label">作业附件 <span class="faint" style="font-weight: 400">（可选）</span></label>
         <input ref="fileInput" type="file" multiple style="display: none" @change="onFiles" />
-        <button type="button" class="btn btn-outline btn-sm" :disabled="loading" @click="fileInput.click()">
-          <Icon name="plus" :size="14" />选择文件
+        <button type="button" class="btn btn-outline btn-sm" :disabled="loading || uploading" @click="fileInput.click()">
+          <Icon v-if="uploading" name="refresh" :size="14" class="spin" />
+          <Icon v-else name="plus" :size="14" />{{ uploading ? '上传中…' : '选择文件' }}
         </button>
-        <div class="hint">支持任意格式文件。单次合计不超过 3 MB；图片、PDF、Office/WPS 超出时会自动尝试压缩，压缩后仍超限则需要手动压缩。附件仅当天有效，次日自动清理。</div>
+        <div class="hint">支持任意格式，单个最大 100 MB（分片上传）。超过 20 MB 会先尝试压缩。附件仅当天有效，次日自动清理。</div>
         <div v-if="existingAttachments.length || newAttachments.length" class="attachment-list">
           <div v-for="file in existingAttachments" :key="file.id" class="attachment-chip">
-            <a :href="`/api/attachments/${file.id}/download`" class="attachment-name" :title="file.filename">
+            <a href="#" class="attachment-name" :title="file.filename" @click.prevent="downloadAttachment(file)">
               <Icon name="link" :size="13" />{{ file.filename }}
             </a>
             <span class="text-xs faint">{{ formatFileSize(file.size) }}</span>
@@ -242,10 +279,10 @@ async function remove() {
               <Icon name="x" :size="13" />
             </button>
           </div>
-          <div v-for="(file, index) in newAttachments" :key="`${file.filename}-${index}`" class="attachment-chip">
+          <div v-for="file in newAttachments" :key="file.uploadId" class="attachment-chip">
             <span class="attachment-name" :title="file.filename"><Icon name="link" :size="13" />{{ file.filename }}</span>
-            <span class="text-xs faint">{{ formatFileSize(file.size) }}</span>
-            <button type="button" class="btn btn-ghost btn-icon btn-sm" title="移除" @click="newAttachments.splice(index, 1)">
+            <span class="text-xs faint">{{ file.ready ? formatFileSize(file.size) : `${file.progress}%` }}</span>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" title="移除" @click="discardUpload(file)">
               <Icon name="x" :size="13" />
             </button>
           </div>

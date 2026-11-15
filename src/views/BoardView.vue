@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '../components/Icon.vue'
 import HomeworkDialog from '../components/HomeworkDialog.vue'
 import { api } from '../lib/api'
+import { downloadAttachment } from '../lib/download'
 import { state, pushToast, confirmDialog } from '../lib/store'
 import { subscribeRealtime } from '../lib/realtime'
 import {
@@ -319,7 +320,7 @@ onBeforeUnmount(() => {
           <p class="hw-content">{{ item.content }}</p>
 
           <div v-if="item.attachments?.length" class="hw-attachments">
-            <a v-for="file in item.attachments" :key="file.id" :href="`/api/attachments/${file.id}/download`" class="hw-attachment">
+            <a v-for="file in item.attachments" :key="file.id" href="#" class="hw-attachment" @click.prevent="downloadAttachment(file)">
               <Icon name="link" :size="12" />{{ file.filename }}
             </a>
           </div>

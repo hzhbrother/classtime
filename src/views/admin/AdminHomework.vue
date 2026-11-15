@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import Icon from '../../components/Icon.vue'
 import HomeworkDialog from '../../components/HomeworkDialog.vue'
 import { api } from '../../lib/api'
+import { downloadAttachment } from '../../lib/download'
 import { pushToast, confirmDialog } from '../../lib/store'
 import {
   todayStr,
@@ -162,9 +163,10 @@ onMounted(load)
             <a
               v-for="file in item.attachments"
               :key="file.id"
-              :href="`/api/attachments/${file.id}/download`"
+              href="#"
               class="hw-attachment"
               :download="file.filename"
+              @click.prevent="downloadAttachment(file)"
             >
               <Icon name="link" :size="12" />{{ file.filename }}
             </a>
