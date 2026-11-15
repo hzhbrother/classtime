@@ -627,7 +627,7 @@ app.get('/api/attachments/:id/download', h(async (req, res) => {
     return res.status(416).end()
   }
   const end = Math.min(requestedEnd, meta.size - 1)
-  const row = await db.prepare('SELECT substring(data from $1::int for $2::int) AS part FROM attachments WHERE id = ?')
+  const row = await db.prepare('SELECT substring(data from ?::int for ?::int) AS part FROM attachments WHERE id = ?')
     .get(start + 1, end - start + 1, id)
   res.status(206)
   res.setHeader('Content-Range', `bytes ${start}-${end}/${meta.size}`)
