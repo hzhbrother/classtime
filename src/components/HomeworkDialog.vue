@@ -51,7 +51,7 @@ watch(
 )
 
 const CHUNK_BYTES = 2.5 * 1024 * 1024
-const UPLOAD_CONCURRENCY = 3
+const UPLOAD_CONCURRENCY = 5
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
 
 function blobToBase64(blob) {

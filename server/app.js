@@ -440,18 +440,27 @@ function parseAttachments(input) {
 
 async function insertAttachments(itemId, files, userId) {
   for (const file of files) {
-    let buffer = file.data
-    if (file.uploadId) {
-      const pending = await db.prepare('SELECT * FROM pending_uploads WHERE id = ? AND user_id = ?').get(file.uploadId, userId)
-      if (!pending) throw httpError(400, '附件上传已失效，请重新选择文件')
-      const rows = await db.prepare('SELECT data FROM upload_chunks WHERE upload_id = ? ORDER BY idx').all(file.uploadId)
-      buffer = Buffer.concat(rows.map((row) => row.data))
-      if (!buffer.length || buffer.length > MAX_ATTACHMENT_BYTES) throw httpError(400, '附件大小不合法')
-      await db.prepare('DELETE FROM pending_uploads WHERE id = ?').run(file.uploadId)
+    if (!file.uploadId) {
+      await db.prepare(
+        'INSERT INTO attachments (item_id, filename, mime, size, data, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(itemId, file.filename, file.mime, file.data.length, file.data, nowIso())
+      continue
     }
-    await db.prepare(
-      'INSERT INTO attachments (item_id, filename, mime, size, data, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(itemId, file.filename, file.mime, buffer.length, buffer, nowIso())
+    const pending = await db.prepare('SELECT * FROM pending_uploads WHERE id = ? AND user_id = ?').get(file.uploadId, userId)
+    if (!pending) throw httpError(400, '附件上传已失效，请重新选择文件')
+    const stat = await db.prepare(
+      'SELECT COUNT(*)::int AS n, COALESCE(SUM(length(data)), 0)::int AS total FROM upload_chunks WHERE upload_id = ?'
+    ).get(file.uploadId)
+    if (Number(stat?.n) !== Number(pending.chunk_count) || Number(stat?.total) !== Number(pending.size)) {
+      throw httpError(400, '附件上传不完整，请重新上传')
+    }
+    /* 在数据库内直接拼接分片，避免把整份文件读进函数内存再写回 */
+    await db.prepare(`
+      INSERT INTO attachments (item_id, filename, mime, size, data, created_at)
+      SELECT ?, ?, ?, ?, decode(string_agg(encode(data, 'hex'), '' ORDER BY idx), 'hex'), ?
+      FROM upload_chunks WHERE upload_id = ?
+    `).run(itemId, file.filename, file.mime, Number(pending.size), nowIso(), file.uploadId)
+    await db.prepare('DELETE FROM pending_uploads WHERE id = ?').run(file.uploadId)
   }
 }
 
