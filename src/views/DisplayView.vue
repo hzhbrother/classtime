@@ -174,6 +174,9 @@ onBeforeUnmount(() => {
         <button class="d-icon-btn" title="全屏" @click="toggleFullscreen">
           <Icon name="fullscreen" :size="18" />
         </button>
+        <router-link to="/" class="d-avatar-btn" title="返回个人端" aria-label="返回个人端">
+          <Icon name="user" :size="18" />
+        </router-link>
       </div>
     </header>
 
@@ -423,6 +426,23 @@ onBeforeUnmount(() => {
 .d-icon-btn:hover {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
+}
+
+.d-avatar-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.85), rgba(124, 58, 237, 0.8));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.d-avatar-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.35);
 }
 
 .d-hero {
