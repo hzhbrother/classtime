@@ -302,6 +302,14 @@ onBeforeUnmount(() => {
         <span>数据云端同步</span>
       </footer>
     </template>
+
+    <HomeworkDialog
+      :open="editOpen"
+      :date="date"
+      :item="editingItem"
+      @close="editOpen = false"
+      @saved="onItemSaved"
+    />
   </div>
 </template>
 
@@ -709,6 +717,15 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 255, 255, 0.09);
   overflow: hidden;
   transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.d-card.editable {
+  cursor: pointer;
+}
+
+.d-card.editable:hover {
+  border-color: rgba(129, 140, 248, 0.6);
+  transform: translateY(-2px);
 }
 
 .d-card::before {
