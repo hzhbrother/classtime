@@ -231,7 +231,7 @@ async function remove() {
         <button type="button" class="btn btn-outline btn-sm" :disabled="loading" @click="fileInput.click()">
           <Icon name="plus" :size="14" />选择文件
         </button>
-        <div class="hint">支持任意格式文件。单次合计不超过 3 MB；图片、PDF、Office/WPS 超出时会自动尝试压缩，压缩后仍超限则需要手动压缩。附件上传满 24 小时后自动清理。</div>
+        <div class="hint">支持任意格式文件。单次合计不超过 3 MB；图片、PDF、Office/WPS 超出时会自动尝试压缩，压缩后仍超限则需要手动压缩。附件仅当天有效，次日自动清理。</div>
         <div v-if="existingAttachments.length || newAttachments.length" class="attachment-list">
           <div v-for="file in existingAttachments" :key="file.id" class="attachment-chip">
             <a :href="`/api/attachments/${file.id}/download`" class="attachment-name" :title="file.filename">
