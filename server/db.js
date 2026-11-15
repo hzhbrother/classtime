@@ -207,6 +207,13 @@ export async function createSchema() {
       PRIMARY KEY (upload_id, idx)
     );
 
+    CREATE TABLE IF NOT EXISTS attachment_parts (
+      attachment_id INTEGER NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+      idx INTEGER NOT NULL,
+      data BYTEA NOT NULL,
+      PRIMARY KEY (attachment_id, idx)
+    );
+
     CREATE TABLE IF NOT EXISTS completions (
       item_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,

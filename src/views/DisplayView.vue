@@ -4,7 +4,7 @@ import Icon from '../components/Icon.vue'
 import HomeworkDialog from '../components/HomeworkDialog.vue'
 import { api } from '../lib/api'
 import { downloadAttachment } from '../lib/download'
-import { state, ensureSession } from '../lib/store'
+import { state, ensureSession, pushToast } from '../lib/store'
 import { subscribeRealtime, realtime } from '../lib/realtime'
 import { subjectColor, subjectInitial, todayStr, shiftDate, weekdayCN, formatDateCN } from '../lib/format'
 
@@ -80,6 +80,14 @@ let pollTimer = null
 let noticeTimer = null
 let unsubscribe = null
 let currentDate = todayStr()
+
+async function onDownload(file) {
+  try {
+    await downloadAttachment(file)
+  } catch (err) {
+    pushToast(err.message, 'error')
+  }
+}
 
 async function loadBoard(silent = true) {
   try {
@@ -281,7 +289,7 @@ onBeforeUnmount(() => {
           </div>
           <p class="d-content">{{ item.content }}</p>
           <div v-if="item.attachments?.length" class="d-attachments">
-            <a v-for="file in item.attachments" :key="file.id" href="#" @click.prevent.stop="downloadAttachment(file)">
+            <a v-for="file in item.attachments" :key="file.id" href="#" @click.prevent.stop="onDownload(file)">
               <Icon name="link" :size="12" />{{ file.filename }}
             </a>
           </div>

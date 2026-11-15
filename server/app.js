@@ -454,12 +454,13 @@ async function insertAttachments(itemId, files, userId) {
     if (Number(stat?.n) !== Number(pending.chunk_count) || Number(stat?.total) !== Number(pending.size)) {
       throw httpError(400, '附件上传不完整，请重新上传')
     }
-    /* 在数据库内直接拼接分片，避免把整份文件读进函数内存再写回 */
-    await db.prepare(`
-      INSERT INTO attachments (item_id, filename, mime, size, data, created_at)
-      SELECT ?, ?, ?, ?, decode(string_agg(encode(data, 'hex'), '' ORDER BY idx), 'hex'), ?
-      FROM upload_chunks WHERE upload_id = ?
-    `).run(itemId, file.filename, file.mime, Number(pending.size), nowIso(), file.uploadId)
+    /* 分片按原样搬进附件分片表，不拼接成单个大字段，下载时只读取需要的片段 */
+    const created = await db.prepare(
+      'INSERT INTO attachments (item_id, filename, mime, size, data, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id'
+    ).get(itemId, file.filename, file.mime, Number(pending.size), Buffer.alloc(0), nowIso())
+    await db.prepare(
+      'INSERT INTO attachment_parts (attachment_id, idx, data) SELECT ?, idx, data FROM upload_chunks WHERE upload_id = ?'
+    ).run(created.id, file.uploadId)
     await db.prepare('DELETE FROM pending_uploads WHERE id = ?').run(file.uploadId)
   }
 }
@@ -611,6 +612,8 @@ app.delete('/api/items/:id', canEditBoard, h(async (req, res) => {
   res.json(await getBoardPayload(item.date, req.user.id, req.user.role))
 }))
 
+const PART_BYTES = 2.5 * 1024 * 1024
+
 app.get('/api/attachments/:id/download', h(async (req, res) => {
   const settings = await getSettings()
   if (!req.user && settings.allow_public_display !== '1') return res.status(401).json({ error: '请先登录' })
@@ -622,26 +625,59 @@ app.get('/api/attachments/:id/download', h(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Accept-Ranges', 'bytes')
 
+  const partCount = await db.prepare('SELECT COUNT(*)::int AS n FROM attachment_parts WHERE attachment_id = ?').get(id)
+  const hasParts = Number(partCount?.n) > 0
   const match = /^bytes=(\d+)-(\d*)$/.exec(String(req.headers.range || '').trim())
-  if (!match) {
+
+  if (!hasParts) {
     const row = await db.prepare('SELECT data FROM attachments WHERE id = ?').get(id)
-    res.setHeader('Content-Length', row.data.length)
-    return res.send(row.data)
+    const buffer = row.data
+    if (!match) {
+      res.setHeader('Content-Length', buffer.length)
+      return res.send(buffer)
+    }
+    const start = Number(match[1])
+    const requestedEnd = match[2] ? Number(match[2]) : start + MAX_UPLOAD_CHUNK_BYTES - 1
+    if (start >= buffer.length || requestedEnd < start) {
+      res.setHeader('Content-Range', `bytes */${buffer.length}`)
+      return res.status(416).end()
+    }
+    const end = Math.min(requestedEnd, buffer.length - 1)
+    res.status(206)
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${buffer.length}`)
+    res.setHeader('Content-Length', end - start + 1)
+    return res.send(buffer.subarray(start, end + 1))
+  }
+
+  if (!match) {
+    res.setHeader('Content-Length', meta.size)
+    for (let index = 0; index * PART_BYTES < meta.size; index += 1) {
+      const row = await db.prepare('SELECT data FROM attachment_parts WHERE attachment_id = ? AND idx = ?').get(id, index)
+      if (!row) break
+      res.write(row.data)
+    }
+    return res.end()
   }
 
   const start = Number(match[1])
-  const requestedEnd = match[2] ? Number(match[2]) : start + MAX_UPLOAD_CHUNK_BYTES - 1
+  const requestedEnd = match[2] ? Number(match[2]) : start + PART_BYTES - 1
   if (start >= meta.size || requestedEnd < start) {
     res.setHeader('Content-Range', `bytes */${meta.size}`)
     return res.status(416).end()
   }
   const end = Math.min(requestedEnd, meta.size - 1)
-  const row = await db.prepare('SELECT substring(data from ?::int for ?::int) AS part FROM attachments WHERE id = ?')
-    .get(start + 1, end - start + 1, id)
+  const firstIdx = Math.floor(start / PART_BYTES)
+  const lastIdx = Math.floor(end / PART_BYTES)
+  const rows = await db.prepare(
+    'SELECT idx, data FROM attachment_parts WHERE attachment_id = ? AND idx BETWEEN ? AND ? ORDER BY idx'
+  ).all(id, firstIdx, lastIdx)
+  const merged = Buffer.concat(rows.map((row) => row.data))
+  const offset = start - firstIdx * PART_BYTES
+  const part = merged.subarray(offset, offset + (end - start + 1))
   res.status(206)
   res.setHeader('Content-Range', `bytes ${start}-${end}/${meta.size}`)
-  res.setHeader('Content-Length', row.part.length)
-  res.send(row.part)
+  res.setHeader('Content-Length', part.length)
+  res.send(part)
 }))
 
 app.put('/api/items/:id/submissions/:studentId', canEditBoard, h(async (req, res) => {
