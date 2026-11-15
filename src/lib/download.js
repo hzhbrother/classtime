@@ -1,5 +1,5 @@
 const PIECE_BYTES = 2.5 * 1024 * 1024
-const DOWNLOAD_CONCURRENCY = 3
+const DOWNLOAD_CONCURRENCY = 6
 
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
