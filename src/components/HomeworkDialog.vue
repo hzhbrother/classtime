@@ -119,7 +119,7 @@ async function save() {
 }
 
 async function remove() {
-  const ok = await confirmDialog('删除后该科目作业、提交登记与附件将一并移除。', {
+  const ok = await confirmDialog('删除后该科目作业与附件将一并移除。', {
     title: '删除这条作业？',
     danger: true
   })
