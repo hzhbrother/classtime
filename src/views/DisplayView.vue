@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '../components/Icon.vue'
+import HomeworkDialog from '../components/HomeworkDialog.vue'
 import { api } from '../lib/api'
 import { downloadAttachment } from '../lib/download'
 import { state, ensureSession } from '../lib/store'
@@ -15,10 +16,23 @@ const now = ref(new Date())
 const noticeIndex = ref(0)
 const refreshing = ref(false)
 const settings = ref({ ...state.settings })
+const editOpen = ref(false)
+const editingItem = ref(null)
 
 const items = computed(() => board.value?.items || [])
 const urgent = computed(() => items.value.filter((i) => i.priority === 'urgent'))
 const isToday = computed(() => date.value === todayStr())
+const canEdit = computed(() => ['super_admin', 'teacher'].includes(state.user?.role))
+
+function openEdit(item) {
+  if (!canEdit.value) return
+  editingItem.value = item
+  editOpen.value = true
+}
+
+function onItemSaved(payload) {
+  board.value = payload
+}
 
 const FONT_KEY = 'cb:display:fontScale'
 const fontScale = ref(readFontScale())
@@ -140,7 +154,9 @@ onMounted(async () => {
       loadNotices()
     }
   }, 1000)
-  pollTimer = setInterval(() => loadBoard(), 30000)
+  pollTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') loadBoard()
+  }, 10000)
   noticeTimer = setInterval(() => {
     if (notices.value.length > 1) noticeIndex.value = (noticeIndex.value + 1) % notices.value.length
   }, 8000)
@@ -169,8 +185,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="d-header-right">
-        <div class="d-sync" :class="{ off: !realtime.connected }">
-          <span class="dot" />{{ realtime.connected ? '实时同步中' : '连接中断' }}
+        <div class="d-sync">
+          <span class="dot" />{{ realtime.connected ? '实时同步中' : '每 10 秒自动同步' }}
         </div>
         <button class="d-icon-btn" title="全屏" @click="toggleFullscreen">
           <Icon name="fullscreen" :size="18" />
@@ -251,8 +267,9 @@ onBeforeUnmount(() => {
           v-for="item in items"
           :key="item.id"
           class="d-card"
-          :class="{ urgent: item.priority === 'urgent' }"
+          :class="{ urgent: item.priority === 'urgent', editable: canEdit }"
           :style="{ '--subject': subjectColor(item.subject) }"
+          @click="openEdit(item)"
         >
           <div class="d-card-top">
             <span class="d-subject">
@@ -264,7 +281,7 @@ onBeforeUnmount(() => {
           </div>
           <p class="d-content">{{ item.content }}</p>
           <div v-if="item.attachments?.length" class="d-attachments">
-            <a v-for="file in item.attachments" :key="file.id" href="#" @click.prevent="downloadAttachment(file)">
+            <a v-for="file in item.attachments" :key="file.id" href="#" @click.prevent.stop="downloadAttachment(file)">
               <Icon name="link" :size="12" />{{ file.filename }}
             </a>
           </div>
