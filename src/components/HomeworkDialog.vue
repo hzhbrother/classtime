@@ -4,7 +4,6 @@ import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import { api } from '../lib/api'
 import { pushToast, confirmDialog } from '../lib/store'
-import { shrinkFile } from '../lib/compress'
 import { downloadAttachment } from '../lib/download'
 import { subjectColor } from '../lib/format'
 
@@ -51,9 +50,9 @@ watch(
   }
 )
 
-const CHUNK_BYTES = 2 * 1024 * 1024
+const CHUNK_BYTES = 2.5 * 1024 * 1024
+const UPLOAD_CONCURRENCY = 3
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024
-const COMPRESS_THRESHOLD = 20 * 1024 * 1024
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -64,13 +63,8 @@ function blobToBase64(blob) {
   })
 }
 
-async function uploadOne(original) {
-  let file = original
-  if (file.size > COMPRESS_THRESHOLD) {
-    const shrunk = await shrinkFile(file, MAX_ATTACHMENT_BYTES)
-    if (shrunk) file = shrunk
-  }
-  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`「${original.name}」超过 100 MB，无法上传`)
+async function uploadOne(file) {
+  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`「${file.name}」超过 100 MB，无法上传`)
   const chunkCount = Math.max(1, Math.ceil(file.size / CHUNK_BYTES))
   const mime = file.type || 'application/octet-stream'
   const { id } = await api.post('/uploads', {
@@ -88,11 +82,20 @@ async function uploadOne(original) {
     ready: false
   })
   newAttachments.value.push(entry)
-  for (let index = 0; index < chunkCount; index += 1) {
-    const blob = file.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES)
-    await api.put(`/uploads/${id}/chunks/${index}`, { data: await blobToBase64(blob) })
-    entry.progress = Math.round(((index + 1) / chunkCount) * 100)
+
+  let cursor = 0
+  let finished = 0
+  async function worker() {
+    while (cursor < chunkCount) {
+      const index = cursor
+      cursor += 1
+      const blob = file.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES)
+      await api.put(`/uploads/${id}/chunks/${index}`, { data: await blobToBase64(blob) })
+      finished += 1
+      entry.progress = Math.round((finished / chunkCount) * 100)
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, chunkCount) }, worker))
   entry.ready = true
 }
 
@@ -268,7 +271,7 @@ async function remove() {
           <Icon v-if="uploading" name="refresh" :size="14" class="spin" />
           <Icon v-else name="plus" :size="14" />{{ uploading ? '上传中…' : '选择文件' }}
         </button>
-        <div class="hint">支持任意格式，单个最大 100 MB（分片上传）。超过 20 MB 会先尝试压缩。附件仅当天有效，次日自动清理。</div>
+        <div class="hint">支持任意格式，单个最大 100 MB，自动并行分片上传。附件仅当天有效，次日自动清理。</div>
         <div v-if="existingAttachments.length || newAttachments.length" class="attachment-list">
           <div v-for="file in existingAttachments" :key="file.id" class="attachment-chip">
             <a href="#" class="attachment-name" :title="file.filename" @click.prevent="downloadAttachment(file)">
