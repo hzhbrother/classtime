@@ -77,7 +77,7 @@ async function togglePublish() {
 }
 
 async function removeItem(item) {
-  const ok = await confirmDialog(`将删除「${item.subject}」作业、提交登记与附件。`, {
+  const ok = await confirmDialog(`将删除「${item.subject}」作业与附件。`, {
     title: '删除作业？',
     danger: true
   })
@@ -111,8 +111,7 @@ onMounted(load)
       <div>
         <div class="card-title">作业管理</div>
         <div class="card-sub">
-          {{ formatDateCN(date) }} {{ weekdayCN(date) }} · {{ board?.items.length || 0 }} 项作业 ·
-          {{ board?.progress || 0 }}% 全班已交
+          {{ formatDateCN(date) }} {{ weekdayCN(date) }} · {{ board?.items.length || 0 }} 项作业
         </div>
       </div>
       <div class="toolbar">
@@ -134,8 +133,6 @@ onMounted(load)
       <span class="badge" :class="board?.published ? 'badge-green' : 'badge-amber'">
         <span class="dot" />{{ board?.published ? '已发布' : '草稿' }}
       </span>
-      <span class="badge badge-gray">{{ board?.studentCount || 0 }} 名学生</span>
-      <span class="badge badge-gray">{{ board?.totalDone || 0 }} 人次已交</span>
     </div>
 
     <div v-if="loading" class="skeleton" style="height: 280px" />
@@ -158,7 +155,6 @@ onMounted(load)
             <span v-if="item.deadline" class="badge badge-gray" style="height: 20px; font-size: 10px">
               <Icon name="clock" :size="11" />{{ item.deadline }}前完成
             </span>
-            <span class="text-xs faint">{{ item.doneCount }} / {{ board.studentCount }} 人已交</span>
           </div>
           <div class="text-sm" style="margin-top: 4px; color: var(--text-2); line-height: 1.6; white-space: pre-wrap">{{ item.content }}</div>
           <div v-if="item.note" class="text-xs faint" style="margin-top: 4px">备注：{{ item.note }}</div>

@@ -125,7 +125,7 @@ async function toggleDisabled(user) {
 }
 
 async function remove(user) {
-  const ok = await confirmDialog(`删除账号「${user.name}」后，其作业提交登记会被清除，已绑定设备将变为待绑定。`, {
+  const ok = await confirmDialog(`删除账号「${user.name}」后，已绑定设备将变为待绑定。`, {
     title: '删除账号？',
     danger: true
   })

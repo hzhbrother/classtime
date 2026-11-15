@@ -14,6 +14,8 @@ const maxItems = computed(() => {
   return Math.max(1, ...data.value.days.map((d) => d.items))
 })
 
+const weeklyItems = computed(() => (data.value?.days || []).reduce((sum, day) => sum + day.items, 0))
+
 async function load() {
   loading.value = true
   try {
@@ -79,10 +81,10 @@ onMounted(load)
         <div class="admin-stat tone-green">
           <div class="stat-top">
             <span class="stat-icon green"><Icon name="activity" :size="18" /></span>
-            <span class="badge badge-primary">今日</span>
+            <span class="badge badge-primary">近 7 日</span>
           </div>
-          <div class="stat-value">{{ data.stats.todayProgress }}%</div>
-          <div class="stat-label">全班作业完成度</div>
+          <div class="stat-value">{{ weeklyItems }}</div>
+          <div class="stat-label">作业科目总数</div>
         </div>
       </div>
 
@@ -91,7 +93,7 @@ onMounted(load)
           <div class="card-head">
             <div>
               <div class="card-title">近 7 日作业趋势</div>
-              <div class="card-sub">每日作业科目数量与提交人次</div>
+              <div class="card-sub">每日作业科目数量</div>
             </div>
             <span class="badge badge-primary">作业量</span>
           </div>
@@ -106,7 +108,7 @@ onMounted(load)
           </div>
           <div class="row gap-16 wrap mt-12 text-xs faint">
             <span class="row gap-4"><span class="dot" style="background: #4f46e5" />作业科次数</span>
-            <span>最近 7 日累计提交 {{ data.days.reduce((a, d) => a + d.done, 0) }} 人次</span>
+            <span>最近 7 日累计 {{ weeklyItems }} 项作业</span>
           </div>
         </div>
 
@@ -166,7 +168,7 @@ onMounted(load)
                 <span class="badge badge-gray" style="height: 20px; font-size: 10px">{{ item.subject }}</span>
                 <span class="truncate">{{ item.content }}</span>
               </span>
-              <span class="text-xs faint nowrap">{{ item.doneCount }} 人已交</span>
+              <span class="text-xs faint nowrap">{{ item.deadline }}前完成</span>
             </div>
           </div>
           <div v-else class="text-sm faint">今日暂无作业</div>

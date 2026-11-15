@@ -17,9 +17,30 @@ const settings = ref({ ...state.settings })
 
 const items = computed(() => board.value?.items || [])
 const urgent = computed(() => items.value.filter((i) => i.priority === 'urgent'))
-const progress = computed(() => board.value?.progress || 0)
-const yesterdayItems = computed(() => board.value?.previousDay?.items || [])
 const isToday = computed(() => date.value === todayStr())
+
+const FONT_KEY = 'cb:display:fontScale'
+const fontScale = ref(readFontScale())
+
+function readFontScale() {
+  try {
+    const saved = Number(localStorage.getItem(FONT_KEY))
+    if (Number.isFinite(saved) && saved >= 0.8 && saved <= 1.6) return saved
+  } catch {
+    /* ignore */
+  }
+  return 1.15
+}
+
+function changeFont(delta) {
+  const next = Math.min(1.6, Math.max(0.8, Math.round((fontScale.value + delta) * 100) / 100))
+  fontScale.value = next
+  try {
+    localStorage.setItem(FONT_KEY, String(next))
+  } catch {
+    /* ignore */
+  }
+}
 const dateLabel = computed(() => `${formatDateCN(date.value)} · ${weekdayCN(date.value)}${isToday.value ? ' · 今天' : ''}`)
 const clockParts = computed(() => {
   const d = now.value
@@ -36,7 +57,7 @@ const currentNotice = computed(() => {
 const gridStyle = computed(() => {
   const count = items.value.length
   const columns = count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4
-  return { '--d-columns': columns }
+  return { '--d-columns': columns, '--font-scale': fontScale.value }
 })
 
 let clockTimer = null
@@ -87,13 +108,6 @@ function onDateInput(event) {
   if (!event.target.value) return
   date.value = event.target.value
   loadBoard(false)
-}
-
-function pendingNames(item) {
-  const names = item.pendingStudents?.map((student) => student.name) || []
-  if (!names.length) return item.doneCount > 0 ? '全部交齐' : '暂无登记'
-  const visible = names.slice(0, 12).join('、')
-  return names.length > 12 ? `${visible} 等 ${names.length} 人` : visible
 }
 
 async function toggleFullscreen() {
@@ -180,7 +194,6 @@ onBeforeUnmount(() => {
         <div class="d-hero-side">
           <div class="d-stat"><b>{{ items.length }}</b><span>项作业</span></div>
           <div class="d-stat"><b>{{ urgent.length }}</b><span>项加急</span></div>
-          <div class="d-stat accent"><b>{{ progress }}%</b><span>班级提交</span></div>
         </div>
       </section>
 
@@ -196,14 +209,24 @@ onBeforeUnmount(() => {
             <Icon name="refresh" :size="17" :class="{ spin: refreshing }" />
           </button>
         </div>
-        <div class="d-yesterday">
-          <span class="d-yesterday-title">昨日作业提交</span>
-          <template v-if="yesterdayItems.length">
-            <span v-for="item in yesterdayItems" :key="item.id" class="d-yesterday-item">
-              {{ item.subject }} <b>{{ item.doneCount }}/{{ item.studentCount }}</b> 人
-            </span>
-          </template>
-          <span v-else class="d-yesterday-empty">昨日暂无作业</span>
+        <div class="d-font-controls">
+          <span class="d-font-label">字号</span>
+          <button
+            class="d-icon-btn d-font-btn"
+            title="缩小详情与备注字体"
+            :disabled="fontScale <= 0.8"
+            @click="changeFont(-0.1)"
+          >
+            A−
+          </button>
+          <button
+            class="d-icon-btn d-font-btn"
+            title="放大详情与备注字体"
+            :disabled="fontScale >= 1.6"
+            @click="changeFont(0.1)"
+          >
+            A+
+          </button>
         </div>
       </section>
 
@@ -241,12 +264,8 @@ onBeforeUnmount(() => {
               <Icon name="link" :size="12" />{{ file.filename }}
             </a>
           </div>
-          <div class="d-card-foot"><span class="d-note">{{ item.note || settings.displayMotto }}</span></div>
-          <div class="d-submission">
-            <span class="d-done"><b>{{ item.doneCount }}</b> / {{ board.studentCount }} 人已交</span>
-            <span class="d-pending" :class="{ complete: item.pendingStudents.length === 0 && item.doneCount > 0 }">
-              未交：{{ pendingNames(item) }}
-            </span>
+          <div v-if="item.note || settings.displayMotto" class="d-card-foot">
+            <span class="d-note">{{ item.note || settings.displayMotto }}</span>
           </div>
         </article>
       </main>
@@ -258,7 +277,7 @@ onBeforeUnmount(() => {
 
       <footer class="d-footer">
         <span>{{ board?.date || date }} · 共 {{ items.length }} 项作业</span>
-        <span>提交情况由老师登记</span>
+        <span>详情与备注完整展示</span>
         <span>数据云端同步</span>
       </footer>
     </template>
@@ -528,33 +547,31 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.d-yesterday {
-  min-width: 0;
-  flex: 1;
+.d-font-controls {
   display: flex;
   align-items: center;
   gap: 7px;
-  flex-wrap: wrap;
-  font-size: clamp(10px, 0.8vw, 12px);
+  margin-left: auto;
+}
+
+.d-font-label {
+  font-size: 12px;
+  letter-spacing: 0.06em;
   color: rgba(255, 255, 255, 0.45);
 }
 
-.d-yesterday-title {
-  color: rgba(255, 255, 255, 0.75);
+.d-font-btn {
+  width: auto;
+  min-width: 48px;
+  padding: 0 12px;
+  font-size: 14px;
   font-weight: 700;
-  margin-right: 2px;
 }
 
-.d-yesterday-item {
-  padding: 4px 8px;
-  border-radius: 7px;
-  background: rgba(125, 211, 252, 0.07);
-  border: 1px solid rgba(125, 211, 252, 0.1);
-  white-space: nowrap;
+.d-font-btn:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
 }
-
-.d-yesterday-item b { color: #7dd3fc; }
-.d-yesterday-empty { color: rgba(255, 255, 255, 0.3); }
 
 .d-error {
   position: relative;
@@ -728,8 +745,8 @@ onBeforeUnmount(() => {
 
 .d-content {
   margin: clamp(9px, 0.8vw, 13px) 0;
-  font-size: clamp(13px, 1.05vw, 17px);
-  line-height: 1.5;
+  font-size: calc(clamp(14px, 1.08vw, 18px) * var(--font-scale, 1.15));
+  line-height: 1.55;
   color: rgba(255, 255, 255, 0.88);
   white-space: pre-wrap;
   word-break: break-word;
@@ -759,45 +776,18 @@ onBeforeUnmount(() => {
 }
 
 .d-card-foot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-top: 8px;
+  padding-top: 9px;
   border-top: 1px dashed rgba(255, 255, 255, 0.08);
-  font-size: clamp(10px, 0.78vw, 12px);
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.42);
 }
 
 .d-note {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: block;
+  font-size: calc(clamp(12px, 0.9vw, 15px) * var(--font-scale, 1.15));
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-
-.d-submission {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  margin-top: 8px;
-  font-size: clamp(10px, 0.78vw, 12px);
-  line-height: 1.45;
-}
-
-.d-done {
-  flex: none;
-  color: rgba(125, 211, 252, 0.85);
-  white-space: nowrap;
-}
-
-.d-done b { font-size: 1.15em; }
-
-.d-pending {
-  min-width: 0;
-  color: rgba(255, 255, 255, 0.42);
-  word-break: break-all;
-}
-
-.d-pending.complete { color: #6ee7b7; }
 
 .d-empty {
   position: relative;
@@ -858,7 +848,6 @@ onBeforeUnmount(() => {
   .d-clock { font-size: clamp(40px, 10vw, 64px); }
   .d-hero-side { width: 100%; }
   .d-stat { flex: 1; min-width: 0; }
-  .d-yesterday { flex-basis: 100%; }
   .d-notice-content { display: none; }
   .d-footer { justify-content: center; text-align: center; }
 }
@@ -870,5 +859,6 @@ onBeforeUnmount(() => {
   .d-date-controls { width: 100%; }
   .d-date-picker { flex: 1; }
   .d-date-picker input { width: 100%; }
+  .d-font-controls { width: 100%; justify-content: flex-end; margin-left: 0; }
 }
 </style>
