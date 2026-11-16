@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '../components/Icon.vue'
 import HomeworkDialog from '../components/HomeworkDialog.vue'
 import { api } from '../lib/api'
-import { downloadAttachment } from '../lib/download'
+import { downloadAttachment, formatSize } from '../lib/download'
 import { state, ensureSession, pushToast } from '../lib/store'
 import { subscribeRealtime, realtime } from '../lib/realtime'
 import { subjectColor, subjectInitial, todayStr, shiftDate, weekdayCN, formatDateCN } from '../lib/format'
@@ -18,6 +18,16 @@ const refreshing = ref(false)
 const settings = ref({ ...state.settings })
 const editOpen = ref(false)
 const editingItem = ref(null)
+const downloadState = ref({
+  visible: false,
+  filename: '',
+  loaded: 0,
+  total: 0,
+  piecesDone: 0,
+  piecesTotal: 0,
+  done: false
+})
+let downloadHideTimer = null
 
 const items = computed(() => board.value?.items || [])
 const urgent = computed(() => items.value.filter((i) => i.priority === 'urgent'))
@@ -82,10 +92,24 @@ let unsubscribe = null
 let currentDate = todayStr()
 
 async function onDownload(file) {
+  downloadState.value = { visible: true, filename: file.filename, loaded: 0, total: Number(file.size) || 0, piecesDone: 0, piecesTotal: Math.max(1, Math.ceil((Number(file.size) || 0) / (2.5 * 1024 * 1024))), done: false }
+  if (downloadHideTimer) { clearTimeout(downloadHideTimer); downloadHideTimer = null }
   try {
-    await downloadAttachment(file)
+    await downloadAttachment(file, (p) => {
+      downloadState.value.loaded = p.loaded
+      downloadState.value.total = p.total
+      downloadState.value.piecesDone = p.piecesDone
+      downloadState.value.piecesTotal = p.piecesTotal
+      downloadState.value.filename = p.filename
+    })
+    downloadState.value.done = true
+    downloadState.value.loaded = downloadState.value.total
   } catch (err) {
     pushToast(err.message, 'error')
+    downloadState.value.visible = false
+  }
+  if (downloadState.value.done) {
+    downloadHideTimer = setTimeout(() => { downloadState.value.visible = false; downloadHideTimer = null }, 3500)
   }
 }
 
@@ -318,6 +342,26 @@ onBeforeUnmount(() => {
       @close="editOpen = false"
       @saved="onItemSaved"
     />
+
+    <transition name="d-fade">
+      <div v-if="downloadState.visible" class="download-toast" :class="{ done: downloadState.done }">
+        <div class="dt-icon">
+          <Icon v-if="downloadState.done" name="check" :size="16" />
+          <Icon v-else name="download" :size="16" />
+        </div>
+        <div class="dt-body">
+          <div class="dt-title">{{ downloadState.done ? '下载完成' : '正在下载附件' }}</div>
+          <div class="dt-name" :title="downloadState.filename">{{ downloadState.filename }}</div>
+          <div v-if="!downloadState.done" class="dt-bar-wrap">
+            <div class="dt-bar" :style="{ width: (downloadState.loaded / (downloadState.total || 1)) * 100 + '%' }" />
+          </div>
+          <div class="dt-meta">
+            <template v-if="downloadState.done">已保存到本地</template>
+            <template v-else>{{ downloadState.piecesDone }} / {{ downloadState.piecesTotal }} 片 · {{ formatSize(downloadState.loaded) }} / {{ formatSize(downloadState.total) }}</template>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -923,5 +967,93 @@ onBeforeUnmount(() => {
   .d-date-picker { flex: 1; }
   .d-date-picker input { width: 100%; }
   .d-font-controls { width: 100%; justify-content: flex-end; margin-left: 0; }
+}
+
+.download-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 200;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  width: min(360px, calc(100vw - 48px));
+  border-radius: 14px;
+  background: rgba(20, 23, 40, 0.92);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.download-toast.done {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95));
+}
+
+.dt-icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.download-toast.done .dt-icon {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.dt-body { flex: 1; min-width: 0; }
+
+.dt-title {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-bottom: 3px;
+}
+
+.dt-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 6px;
+}
+
+.dt-bar-wrap {
+  height: 5px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 5px;
+}
+
+.dt-bar {
+  height: 100%;
+  background: #a5b4fc;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.download-toast.done .dt-bar { background: #ffffff; }
+
+.dt-meta {
+  font-size: 12px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.d-fade-enter-active,
+.d-fade-leave-active {
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+.d-fade-enter-from,
+.d-fade-leave-to {
+  transform: translateY(16px);
+  opacity: 0;
 }
 </style>
