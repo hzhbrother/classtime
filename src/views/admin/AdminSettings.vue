@@ -33,12 +33,8 @@ watch(
 function syncSubjects() {
   const cleaned = subjectList.value.map((s) => String(s || '').trim()).filter(Boolean)
   form.default_subjects = JSON.stringify(cleaned)
-  /* 排序列表里自动跟随默认科目，只保留存在的科目 */
-  let order = []
-  try { order = JSON.parse(form.subject_order || '[]') } catch { order = [] }
-  const kept = order.filter((s) => cleaned.includes(s))
-  for (const s of cleaned) if (!kept.includes(s)) kept.push(s)
-  form.subject_order = JSON.stringify(kept)
+  /* subject_order 直接跟随 UI 列表的当前顺序 —— 用户在列表里上移下移就是改排序 */
+  form.subject_order = JSON.stringify(cleaned)
 }
 
 function addSubject() {
