@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../../components/Icon.vue'
 import { api } from '../../lib/api'
 import { pushToast, refreshMe } from '../../lib/store'
@@ -12,16 +12,62 @@ const form = reactive({
   auto_sync_seconds: '30',
   allow_register: '1',
   allow_public_display: '1',
-  auto_carry: '0'
+  auto_carry: '0',
+  default_subjects: '["语文","数学","英语","物理","化学","生物","历史","地理","政治"]',
+  subject_order: '["语文","数学","英语","物理","化学","生物","历史","地理","政治"]'
 })
 const loading = ref(true)
 const saving = ref(false)
+
+const subjectInput = ref('')
+const subjectList = ref(['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治'])
+
+watch(
+  () => form.default_subjects,
+  (value) => {
+    try { subjectList.value = JSON.parse(value || '[]') } catch { /* ignore */ }
+  },
+  { immediate: true }
+)
+
+function syncSubjects() {
+  const cleaned = subjectList.value.map((s) => String(s || '').trim()).filter(Boolean)
+  form.default_subjects = JSON.stringify(cleaned)
+  /* 排序列表里自动跟随默认科目，只保留存在的科目 */
+  let order = []
+  try { order = JSON.parse(form.subject_order || '[]') } catch { order = [] }
+  const kept = order.filter((s) => cleaned.includes(s))
+  for (const s of cleaned) if (!kept.includes(s)) kept.push(s)
+  form.subject_order = JSON.stringify(kept)
+}
+
+function addSubject() {
+  const v = subjectInput.value.trim()
+  if (!v || subjectList.value.includes(v)) return
+  subjectList.value.push(v)
+  subjectInput.value = ''
+  syncSubjects()
+}
+
+function removeSubject(index) {
+  subjectList.value.splice(index, 1)
+  syncSubjects()
+}
+
+function moveSubject(index, delta) {
+  const target = index + delta
+  if (target < 0 || target >= subjectList.value.length) return
+  const arr = subjectList.value
+  ;[arr[index], arr[target]] = [arr[target], arr[index]]
+  syncSubjects()
+}
 
 async function load() {
   loading.value = true
   try {
     const data = await api.get('/admin/settings')
     Object.assign(form, data)
+    try { subjectList.value = JSON.parse(data.default_subjects || '[]') } catch { /* ignore */ }
   } catch (err) {
     pushToast(err.message, 'error')
   } finally {
@@ -32,8 +78,10 @@ async function load() {
 async function save() {
   saving.value = true
   try {
+    syncSubjects()
     const data = await api.patch('/admin/settings', { ...form })
     Object.assign(form, data)
+    try { subjectList.value = JSON.parse(data.default_subjects || '[]') } catch { /* ignore */ }
     await refreshMe()
     pushToast('系统设置已保存并同步到所有端', 'success')
   } catch (err) {
@@ -115,6 +163,46 @@ onMounted(load)
         </div>
         <div class="hint" style="margin-top: 10px">
           常驻服务会检查日期变化；Vercel 部署由每日定时任务自动创建新作业板。
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="card-head">
+          <div>
+            <div class="card-title">科目管理与排序</div>
+            <div class="card-sub">控制新建作业时可选的默认科目，以及大屏上作业卡片的排列顺序</div>
+          </div>
+          <span class="stat-icon"><Icon name="book" :size="18" /></span>
+        </div>
+        <div class="field">
+          <label class="label">添加科目</label>
+          <div class="row gap-10">
+            <input v-model="subjectInput" class="input" placeholder="比如：日语、美术" @keyup.enter="addSubject()" />
+            <button class="btn btn-outline btn-sm" @click="addSubject()">
+              <Icon name="plus" :size="14" />添加
+            </button>
+          </div>
+          <div class="hint">按 Enter 也可快速添加。新科目会自动追加到排序列表末尾。</div>
+        </div>
+        <div v-if="subjectList.length" class="subject-sort-list">
+          <div v-for="(s, i) in subjectList" :key="s + i" class="subject-sort-row">
+            <span class="subject-drag"><Icon name="menu" :size="14" /></span>
+            <span class="subject-name">{{ s }}</span>
+            <span class="subject-order">#{{ i + 1 }}</span>
+            <button class="btn btn-ghost btn-icon btn-sm" :disabled="i === 0" @click="moveSubject(i, -1)" title="上移">
+              <Icon name="chevronUp" :size="13" />
+            </button>
+            <button class="btn btn-ghost btn-icon btn-sm" :disabled="i === subjectList.length - 1" @click="moveSubject(i, 1)" title="下移">
+              <Icon name="chevronDown" :size="13" />
+            </button>
+            <button class="btn btn-ghost btn-icon btn-sm text-danger" @click="removeSubject(i)" title="删除">
+              <Icon name="x" :size="13" />
+            </button>
+          </div>
+        </div>
+        <div v-else class="text-xs faint mt-8">还没有科目，添加第一个开始吧。</div>
+        <div class="hint mt-12">
+          科目顺序就是大屏上作业卡片的排列顺序。不在排序列表里的科目会排在最后。
         </div>
       </div>
 

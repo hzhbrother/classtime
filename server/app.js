@@ -120,6 +120,10 @@ function identityForRole(role) {
 
 async function publicSettings() {
   const s = await getSettings()
+  let defaultSubjects = []
+  let subjectOrder = []
+  try { defaultSubjects = JSON.parse(s.default_subjects || '[]') } catch { defaultSubjects = [] }
+  try { subjectOrder = JSON.parse(s.subject_order || '[]') } catch { subjectOrder = [] }
   return {
     siteName: s.site_name,
     className: s.class_name,
@@ -127,7 +131,9 @@ async function publicSettings() {
     allowPublicDisplay: s.allow_public_display === '1',
     autoSyncSeconds: Number(s.auto_sync_seconds) || 30,
     displayMotto: s.display_motto,
-    rolloverTime: s.rollover_time
+    rolloverTime: s.rollover_time,
+    defaultSubjects,
+    subjectOrder
   }
 }
 

@@ -8,7 +8,9 @@ const defaultSettings = {
   allowPublicDisplay: true,
   autoSyncSeconds: 30,
   displayMotto: '把今天的作业，变成明天的底气。',
-  rolloverTime: '00:05'
+  rolloverTime: '00:05',
+  defaultSubjects: ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治'],
+  subjectOrder: ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
 }
 
 export const state = reactive({

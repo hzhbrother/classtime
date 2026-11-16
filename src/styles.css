@@ -1157,6 +1157,53 @@ table.data tbody tr:hover {
 .stat-icon.blue { background: #eff6ff; color: #2563eb; }
 .stat-icon.pink { background: #fdf2f8; color: #db2777; }
 
+.subject-sort-list {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface-2);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.subject-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--surface-3);
+  transition: background 0.15s ease;
+}
+
+.subject-sort-row:last-child {
+  border-bottom: none;
+}
+
+.subject-sort-row:hover {
+  background: var(--surface-2);
+}
+
+.subject-drag {
+  color: var(--faint);
+  flex: none;
+  padding: 2px;
+}
+
+.subject-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.subject-order {
+  font-size: 12px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 26px;
+  text-align: right;
+}
+
 .stat-value {
   font-size: 21px;
   font-weight: 700;

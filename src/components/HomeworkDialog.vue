@@ -1,9 +1,9 @@
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import Modal from './Modal.vue'
 import Icon from './Icon.vue'
 import { api } from '../lib/api'
-import { pushToast, confirmDialog } from '../lib/store'
+import { pushToast, confirmDialog, state } from '../lib/store'
 import { downloadAttachment } from '../lib/download'
 import { subjectColor } from '../lib/format'
 
@@ -14,7 +14,12 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'saved'])
 
-const subjects = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
+const DEFAULT_FALLBACK = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治']
+const subjects = computed(() => {
+  const list = state.settings.defaultSubjects
+  if (Array.isArray(list) && list.length) return list
+  return DEFAULT_FALLBACK
+})
 const lessons = Array.from({ length: 12 }, (_, index) => `第${index + 1}节课`)
 const form = reactive({ subject: '语文', content: '', deadline: '第1节课', priority: 'normal', note: '' })
 const loading = ref(false)

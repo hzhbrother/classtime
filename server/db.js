@@ -267,7 +267,9 @@ export const DEFAULT_SETTINGS = {
   allow_register: '1',
   allow_public_display: '1',
   auto_carry: '0',
-  display_motto: '把今天的作业，变成明天的底气。'
+  display_motto: '把今天的作业，变成明天的底气。',
+  default_subjects: '["语文","数学","英语","物理","化学","生物","历史","地理","政治"]',
+  subject_order: '["语文","数学","英语","物理","化学","生物","历史","地理","政治"]'
 }
 
 export async function getSettings() {
@@ -378,6 +380,9 @@ export async function copyItems(fromDate, toDate) {
 
 export async function getBoardPayload(date, userId = null, role = 'student') {
   const board = await ensureBoard(date)
+  const settings = await getSettings()
+  let subjectOrder = []
+  try { subjectOrder = JSON.parse(settings.subject_order || '[]') } catch { subjectOrder = [] }
   const [items, students, completionRows, attachmentRows] = await Promise.all([
     db.prepare('SELECT * FROM items WHERE board_id = ? ORDER BY sort, id').all(board.id),
     db.prepare("SELECT id, name, class_name FROM users WHERE role = 'student' AND disabled = 0 ORDER BY id").all(),
@@ -443,31 +448,41 @@ export async function getBoardPayload(date, userId = null, role = 'student') {
         studentCount
       }))
     },
-    items: items.map((item) => {
-      const id = Number(item.id)
-      const submittedIds = submittedByItem.get(id) || new Set()
-      const submittedStudents = students
-        .filter((student) => submittedIds.has(Number(student.id)))
-        .map((student) => ({ id: Number(student.id), name: student.name, className: student.class_name }))
-      const pendingStudents = students
-        .filter((student) => !submittedIds.has(Number(student.id)))
-        .map((student) => ({ id: Number(student.id), name: student.name, className: student.class_name }))
-      return {
-        id,
-        subject: item.subject,
-        content: item.content,
-        // 旧版具体时刻没有对应课时，按新建作业的默认第一节课展示
-        deadline: /^第(?:[1-9]|1[0-2])节课$/.test(item.deadline || '') ? item.deadline : item.deadline ? '第1节课' : '',
-        priority: item.priority,
-        note: item.note,
-        sort: Number(item.sort),
-        doneCount: submittedStudents.length,
-        done: userId ? submittedIds.has(Number(userId)) : false,
-        submittedStudents,
-        pendingStudents,
-        attachments: attachmentsByItem.get(id) || []
-      }
-    })
+    items: items
+      .map((item) => {
+        const id = Number(item.id)
+        const submittedIds = submittedByItem.get(id) || new Set()
+        const submittedStudents = students
+          .filter((student) => submittedIds.has(Number(student.id)))
+          .map((student) => ({ id: Number(student.id), name: student.name, className: student.class_name }))
+        const pendingStudents = students
+          .filter((student) => !submittedIds.has(Number(student.id)))
+          .map((student) => ({ id: Number(student.id), name: student.name, className: student.class_name }))
+        return {
+          id,
+          subject: item.subject,
+          content: item.content,
+          deadline: /^第(?:[1-9]|1[0-2])节课$/.test(item.deadline || '') ? item.deadline : item.deadline ? '第1节课' : '',
+          priority: item.priority,
+          note: item.note,
+          sort: Number(item.sort),
+          doneCount: submittedStudents.length,
+          done: userId ? submittedIds.has(Number(userId)) : false,
+          submittedStudents,
+          pendingStudents,
+          attachments: attachmentsByItem.get(id) || []
+        }
+      })
+      .sort((a, b) => {
+        const ai = subjectOrder.indexOf(a.subject)
+        const bi = subjectOrder.indexOf(b.subject)
+        const aRank = ai >= 0 ? ai : subjectOrder.length
+        const bRank = bi >= 0 ? bi : subjectOrder.length
+        if (aRank !== bRank) return aRank - bRank
+        if (a.subject !== b.subject) return a.subject.localeCompare(b.subject, 'zh-CN')
+        if (a.sort !== b.sort) return a.sort - b.sort
+        return a.id - b.id
+      })
   }
 }
 
