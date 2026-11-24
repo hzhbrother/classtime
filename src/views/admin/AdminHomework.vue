@@ -1,10 +1,12 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from '../../components/Icon.vue'
+import Modal from '../../components/Modal.vue'
 import HomeworkDialog from '../../components/HomeworkDialog.vue'
 import { api } from '../../lib/api'
 import { downloadAttachment } from '../../lib/download'
-import { pushToast, confirmDialog } from '../../lib/store'
+import { createHomeworkPoster } from '../../lib/poster'
+import { pushToast, confirmDialog, state } from '../../lib/store'
 import {
   todayStr,
   shiftDate,
@@ -20,6 +22,11 @@ const loading = ref(true)
 const dialogOpen = ref(false)
 const editingItem = ref(null)
 const publishing = ref(false)
+const exporting = ref(false)
+const posterOpen = ref(false)
+const posterUrl = ref('')
+const posterDate = ref('')
+let posterBlob = null
 const isToday = computed(() => date.value === todayStr())
 
 async function load() {
@@ -103,7 +110,60 @@ async function carry() {
   }
 }
 
+function clearPoster() {
+  if (posterUrl.value) URL.revokeObjectURL(posterUrl.value)
+  posterUrl.value = ''
+  posterBlob = null
+}
+
+function closePoster() {
+  posterOpen.value = false
+  clearPoster()
+}
+
+async function exportPoster() {
+  if (!board.value) {
+    pushToast('作业数据还没有加载完成', 'error')
+    return
+  }
+  if (!board.value.published) {
+    pushToast('请先发布作业板，再导出图片', 'error')
+    return
+  }
+  if (!board.value.items?.length) {
+    pushToast('这一天还没有可导出的作业', 'error')
+    return
+  }
+
+  exporting.value = true
+  try {
+    const blob = await createHomeworkPoster(board.value, state.settings)
+    clearPoster()
+    posterBlob = blob
+    posterUrl.value = URL.createObjectURL(blob)
+    posterDate.value = board.value.date || date.value
+    posterOpen.value = true
+  } catch (err) {
+    pushToast(err.message || '图片生成失败，请重试', 'error')
+  } finally {
+    exporting.value = false
+  }
+}
+
+function downloadPoster() {
+  if (!posterBlob || !posterUrl.value) return
+  const className = String(state.settings.className || '班级').replace(/[\\/:*?"<>|]/g, '_')
+  const link = document.createElement('a')
+  link.href = posterUrl.value
+  link.download = `${className}-${posterDate.value || date.value}-作业清单.png`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  pushToast('图片下载已开始', 'success')
+}
+
 onMounted(load)
+onBeforeUnmount(clearPoster)
 </script>
 
 <template>
@@ -125,6 +185,10 @@ onMounted(load)
         <button class="btn btn-outline btn-sm" @click="carry"><Icon name="copy" :size="14" />复制前一日</button>
         <button class="btn btn-outline btn-sm" :disabled="publishing" @click="togglePublish">
           <Icon :name="board?.published ? 'lock' : 'power'" :size="14" />{{ board?.published ? '转草稿' : '发布' }}
+        </button>
+        <button class="btn btn-outline btn-sm" :disabled="exporting || loading" @click="exportPoster">
+          <Icon :name="exporting ? 'refresh' : 'image'" :size="14" :class="{ spin: exporting }" />
+          {{ exporting ? '正在生成' : '导出图片' }}
         </button>
         <button class="btn btn-primary btn-sm" @click="openAdd"><Icon name="plus" :size="14" />新增作业</button>
       </div>
@@ -197,5 +261,59 @@ onMounted(load)
       @close="dialogOpen = false"
       @saved="onSaved"
     />
+
+    <Modal :open="posterOpen" title="作业海报预览" size="lg" @close="closePoster">
+      <div class="poster-preview-scroll">
+        <img
+          v-if="posterUrl"
+          class="poster-preview-image"
+          :src="posterUrl"
+          :alt="`${posterDate} 作业清单海报`"
+        />
+      </div>
+      <p class="poster-preview-hint">预览与下载文件一致。手机端也可以长按图片保存到相册。</p>
+      <template #footer>
+        <button class="btn btn-outline" @click="closePoster">关闭</button>
+        <button class="btn btn-primary" :disabled="!posterUrl" @click="downloadPoster">
+          <Icon name="image" :size="15" />下载 PNG 图片
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>
+
+<style scoped>
+.poster-preview-scroll {
+  max-height: calc(90vh - 220px);
+  overflow: auto;
+  padding: 16px;
+  border-radius: 16px;
+  background: #e8edf5;
+  text-align: center;
+  scrollbar-width: thin;
+}
+
+.poster-preview-image {
+  display: block;
+  width: min(100%, 500px);
+  height: auto;
+  margin: 0 auto;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(30, 41, 59, 0.16);
+}
+
+.poster-preview-hint {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .poster-preview-scroll {
+    max-height: calc(92vh - 220px);
+    padding: 10px;
+  }
+}
+</style>
